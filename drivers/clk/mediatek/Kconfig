@@ -388,6 +388,13 @@ config COMMON_CLK_MT6833_AUDSYS
 	help
 	  This driver supports MediaTek MT6833 audsys clocks.
 
+config COMMON_CLK_MT6833_CAMSYS
+	tristate "Clock driver for MediaTek MT6833 camsys"
+	depends on COMMON_CLK_MT6833
+	default COMMON_CLK_MT6833
+	help
+	  This driver supports MediaTek MT6833 camsys, camsys_rawa and camsys_rawb clocks.
+
 config COMMON_CLK_MT6833_IMP_IIC_WRAP
 	tristate "Clock driver for MediaTek MT6833 imp_iic_wrap"
 	depends on COMMON_CLK_MT6833
