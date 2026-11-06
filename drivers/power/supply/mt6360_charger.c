@@ -3,7 +3,9 @@
  * Copyright (c) 2021 MediaTek Inc.
  */
 
+#include <linux/delay.h>
 #include <linux/devm-helpers.h>
+#include <linux/iio/consumer.h>
 #include <linux/init.h>
 #include <linux/interrupt.h>
 #include <linux/kernel.h>
@@ -42,6 +44,7 @@
 #define MT6360_IINLMTSEL_SHFT	(2)
 #define MT6360_IINLMTSEL_MASK	GENMASK(3, 2)
 #define MT6360_TE_EN_MASK	BIT(4)
+#define MT6360_CHG_EN_MASK	BIT(0)
 /* MT6360_PMU_CHG_CTRL3 */
 #define MT6360_IAICR_SHFT	(2)
 #define MT6360_IAICR_MASK	GENMASK(7, 2)
@@ -107,6 +110,22 @@
 #define MT6360_IEOC_MAX		850000
 #define MT6360_IEOC_STEP	50000
 
+/* Battery temperature: how often to check it while powered, and the hysteresis in millicelsius */
+#define MT6360_BAT_TEMP_POLL_MS		10000
+#define MT6360_BAT_TEMP_HYST		2000
+
+/*
+ * Battery temperature zones, from the monitored battery's operating range (no charging outside
+ * it) and alert temperatures (its alert charge current and voltage beyond them).
+ */
+enum mt6360_bat_temp_zone {
+	MT6360_BAT_TEMP_COLD,
+	MT6360_BAT_TEMP_COOL,
+	MT6360_BAT_TEMP_NORMAL,
+	MT6360_BAT_TEMP_WARM,
+	MT6360_BAT_TEMP_HOT,
+};
+
 enum {
 	MT6360_RANGE_VMIVR,
 	MT6360_RANGE_ICHG,
@@ -140,6 +159,17 @@ struct mt6360_chg_info {
 	struct work_struct chrdet_work;
 	u32 ichg_max;
 	u32 cv_max;
+	/* Protects the charge current, voltage and enable against the temperature work */
+	struct mutex chg_lock;
+	u32 ichg_req;
+	u32 cv_req;
+	u32 ichg_tlim;
+	u32 cv_tlim;
+	struct power_supply_battery_info *bat_info;
+	struct iio_channel *bat_temp;
+	struct delayed_work bat_temp_work;
+	enum mt6360_bat_temp_zone bat_temp_zone;
+	bool bat_temp_known;
 };
 
 enum mt6360_iinlmtsel {
@@ -366,6 +396,25 @@ static int mt6360_charger_get_ieoc(struct mt6360_chg_info *mci,
 	return ret;
 }
 
+static int mt6360_charger_get_health(struct mt6360_chg_info *mci,
+				     union power_supply_propval *val)
+{
+	static const int health[] = {
+		[MT6360_BAT_TEMP_COLD] = POWER_SUPPLY_HEALTH_COLD,
+		[MT6360_BAT_TEMP_COOL] = POWER_SUPPLY_HEALTH_COOL,
+		[MT6360_BAT_TEMP_NORMAL] = POWER_SUPPLY_HEALTH_GOOD,
+		[MT6360_BAT_TEMP_WARM] = POWER_SUPPLY_HEALTH_WARM,
+		[MT6360_BAT_TEMP_HOT] = POWER_SUPPLY_HEALTH_HOT,
+	};
+
+	guard(mutex)(&mci->chg_lock);
+	if (mci->bat_temp && mci->bat_temp_known)
+		val->intval = health[mci->bat_temp_zone];
+	else
+		val->intval = POWER_SUPPLY_HEALTH_UNKNOWN;
+	return 0;
+}
+
 static int mt6360_charger_set_online(struct mt6360_chg_info *mci,
 				     const union power_supply_propval *val)
 {
@@ -377,30 +426,49 @@ static int mt6360_charger_set_online(struct mt6360_chg_info *mci,
 				  force_sleep << MT6360_FSLP_SHFT);
 }
 
-static int mt6360_charger_set_ichg(struct mt6360_chg_info *mci,
-				   const union power_supply_propval *val)
+static int mt6360_charger_write_ichg(struct mt6360_chg_info *mci, u32 uA)
 {
 	u32 sel;
 
-	linear_range_get_selector_within(&mt6360_chg_range[MT6360_RANGE_ICHG],
-					 min_t(u32, val->intval, mci->ichg_max), &sel);
+	linear_range_get_selector_within(&mt6360_chg_range[MT6360_RANGE_ICHG], uA, &sel);
 	return regmap_update_bits(mci->regmap,
 				  MT6360_PMU_CHG_CTRL7,
 				  MT6360_ICHG_MASK,
 				  sel << MT6360_ICHG_SHFT);
 }
 
-static int mt6360_charger_set_cv(struct mt6360_chg_info *mci,
-				 const union power_supply_propval *val)
+/* Charge at what was asked for, within the battery's and its temperature's limits */
+static int mt6360_charger_apply_ichg(struct mt6360_chg_info *mci)
+{
+	return mt6360_charger_write_ichg(mci, min3(mci->ichg_req, mci->ichg_max, mci->ichg_tlim));
+}
+
+static int mt6360_charger_apply_cv(struct mt6360_chg_info *mci)
 {
 	u32 sel;
 
 	linear_range_get_selector_within(&mt6360_chg_range[MT6360_RANGE_VOREG],
-					 min_t(u32, val->intval, mci->cv_max), &sel);
+					 min3(mci->cv_req, mci->cv_max, mci->cv_tlim), &sel);
 	return regmap_update_bits(mci->regmap,
 				  MT6360_PMU_CHG_CTRL4,
 				  MT6360_VOREG_MASK,
 				  sel << MT6360_VOREG_SHFT);
+}
+
+static int mt6360_charger_set_ichg(struct mt6360_chg_info *mci,
+				   const union power_supply_propval *val)
+{
+	guard(mutex)(&mci->chg_lock);
+	mci->ichg_req = max(val->intval, 0);
+	return mt6360_charger_apply_ichg(mci);
+}
+
+static int mt6360_charger_set_cv(struct mt6360_chg_info *mci,
+				 const union power_supply_propval *val)
+{
+	guard(mutex)(&mci->chg_lock);
+	mci->cv_req = max(val->intval, 0);
+	return mt6360_charger_apply_cv(mci);
 }
 
 static int mt6360_charger_set_aicr(struct mt6360_chg_info *mci,
@@ -464,6 +532,9 @@ static int mt6360_charger_get_property(struct power_supply *psy,
 		break;
 	case POWER_SUPPLY_PROP_STATUS:
 		ret = mt6360_charger_get_status(mci, val);
+		break;
+	case POWER_SUPPLY_PROP_HEALTH:
+		ret = mt6360_charger_get_health(mci, val);
 		break;
 	case POWER_SUPPLY_PROP_CHARGE_TYPE:
 		ret = mt6360_charger_get_charge_type(mci, val);
@@ -556,6 +627,7 @@ static int mt6360_charger_property_is_writeable(struct power_supply *psy,
 static enum power_supply_property mt6360_charger_properties[] = {
 	POWER_SUPPLY_PROP_ONLINE,
 	POWER_SUPPLY_PROP_STATUS,
+	POWER_SUPPLY_PROP_HEALTH,
 	POWER_SUPPLY_PROP_CHARGE_TYPE,
 	POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT,
 	POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT_MAX,
@@ -675,6 +747,8 @@ static void mt6360_handle_chrdet_ext_evt(struct mt6360_chg_info *mci)
 	}
 	mci->pwr_rdy = pwr_rdy;
 	dev_dbg(mci->dev, "Received vbus interrupt, pwr_rdy = %d\n", pwr_rdy);
+	if (pwr_rdy && mci->bat_temp)
+		mod_delayed_work(system_wq, &mci->bat_temp_work, 0);
 	if (!pwr_rdy) {
 		mci->psy_usb_type = POWER_SUPPLY_USB_TYPE_UNKNOWN;
 		power_supply_changed(mci->psy);
@@ -788,6 +862,157 @@ static int mt6360_chg_init_setting(struct mt6360_chg_info *mci)
 	return 0;
 }
 
+static enum mt6360_bat_temp_zone
+mt6360_bat_temp_to_zone(const struct power_supply_battery_info *info, int temp)
+{
+	/* The battery gives its temperatures in degrees Celsius */
+	if (info->temp_min > INT_MIN && temp < info->temp_min * 1000)
+		return MT6360_BAT_TEMP_COLD;
+	if (info->temp_alert_min > INT_MIN && temp < info->temp_alert_min * 1000)
+		return MT6360_BAT_TEMP_COOL;
+	if (info->temp_max < INT_MAX && temp > info->temp_max * 1000)
+		return MT6360_BAT_TEMP_HOT;
+	if (info->temp_alert_max < INT_MAX && temp > info->temp_alert_max * 1000)
+		return MT6360_BAT_TEMP_WARM;
+	return MT6360_BAT_TEMP_NORMAL;
+}
+
+/* How far a zone is from normal */
+static int mt6360_bat_temp_distance(enum mt6360_bat_temp_zone zone)
+{
+	return abs((int)zone - MT6360_BAT_TEMP_NORMAL);
+}
+
+/* Leave a zone for one closer to normal only once past its boundary by the hysteresis */
+static enum mt6360_bat_temp_zone mt6360_bat_temp_zone(struct mt6360_chg_info *mci, int temp)
+{
+	enum mt6360_bat_temp_zone cur = mci->bat_temp_zone;
+	enum mt6360_bat_temp_zone zone = mt6360_bat_temp_to_zone(mci->bat_info, temp);
+
+	if (!mci->bat_temp_known ||
+	    mt6360_bat_temp_distance(zone) >= mt6360_bat_temp_distance(cur))
+		return zone;
+
+	temp += cur < MT6360_BAT_TEMP_NORMAL ? -MT6360_BAT_TEMP_HYST : MT6360_BAT_TEMP_HYST;
+	zone = mt6360_bat_temp_to_zone(mci->bat_info, temp);
+	if (mt6360_bat_temp_distance(zone) >= mt6360_bat_temp_distance(cur))
+		return cur;
+	return zone;
+}
+
+/*
+ * Stop charging. As the stock kernel does against VSYS overshoot, take the charge current down to
+ * 500 mA first, giving it 2 ms for each 50 mA to ramp.
+ */
+static int mt6360_charger_disable(struct mt6360_chg_info *mci)
+{
+	union power_supply_propval ichg;
+	unsigned int regval;
+	int ret;
+
+	ret = regmap_read(mci->regmap, MT6360_PMU_CHG_CTRL2, &regval);
+	if (ret || !(regval & MT6360_CHG_EN_MASK))
+		return ret;
+
+	ret = mt6360_charger_get_ichg(mci, &ichg);
+	if (ret)
+		return ret;
+	if (ichg.intval > 500000) {
+		ret = mt6360_charger_write_ichg(mci, 500000);
+		if (ret)
+			return ret;
+		msleep((ichg.intval - 500000) / 50000 * 2);
+	}
+
+	return regmap_update_bits(mci->regmap, MT6360_PMU_CHG_CTRL2, MT6360_CHG_EN_MASK, 0);
+}
+
+/* Charge as the battery temperature allows; called with chg_lock held */
+static int mt6360_charger_apply_bat_temp(struct mt6360_chg_info *mci)
+{
+	const struct power_supply_battery_info *info = mci->bat_info;
+	int ret;
+
+	mci->ichg_tlim = MT6360_ICHG_MAX;
+	mci->cv_tlim = MT6360_VOREG_MAX;
+
+	if (!mci->bat_temp_known)
+		return mt6360_charger_disable(mci);
+
+	switch (mci->bat_temp_zone) {
+	case MT6360_BAT_TEMP_COLD:
+	case MT6360_BAT_TEMP_HOT:
+		return mt6360_charger_disable(mci);
+	case MT6360_BAT_TEMP_COOL:
+		if (info->alert_low_temp_charge_current_ua > 0)
+			mci->ichg_tlim = info->alert_low_temp_charge_current_ua;
+		if (info->alert_low_temp_charge_voltage_uv > 0)
+			mci->cv_tlim = info->alert_low_temp_charge_voltage_uv;
+		break;
+	case MT6360_BAT_TEMP_WARM:
+		if (info->alert_high_temp_charge_current_ua > 0)
+			mci->ichg_tlim = info->alert_high_temp_charge_current_ua;
+		if (info->alert_high_temp_charge_voltage_uv > 0)
+			mci->cv_tlim = info->alert_high_temp_charge_voltage_uv;
+		break;
+	default:
+		break;
+	}
+
+	ret = mt6360_charger_apply_cv(mci);
+	if (!ret)
+		ret = mt6360_charger_apply_ichg(mci);
+	if (!ret)
+		ret = regmap_update_bits(mci->regmap, MT6360_PMU_CHG_CTRL2,
+					 MT6360_CHG_EN_MASK, MT6360_CHG_EN_MASK);
+	return ret;
+}
+
+static void mt6360_bat_temp_work(struct work_struct *work)
+{
+	struct mt6360_chg_info *mci = container_of(to_delayed_work(work),
+						   struct mt6360_chg_info, bat_temp_work);
+	static const char * const names[] = {
+		[MT6360_BAT_TEMP_COLD] = "cold, not charging",
+		[MT6360_BAT_TEMP_COOL] = "cool",
+		[MT6360_BAT_TEMP_NORMAL] = "normal",
+		[MT6360_BAT_TEMP_WARM] = "warm",
+		[MT6360_BAT_TEMP_HOT] = "hot, not charging",
+	};
+	enum mt6360_bat_temp_zone zone = MT6360_BAT_TEMP_NORMAL;
+	bool known, changed = false, pwr_rdy;
+	int temp = 0, ret;
+
+	ret = iio_read_channel_processed(mci->bat_temp, &temp);
+	known = ret >= 0;
+	if (!known)
+		dev_err_ratelimited(mci->dev, "Failed to read the battery temperature: %d\n", ret);
+
+	scoped_guard(mutex, &mci->chg_lock) {
+		if (known)
+			zone = mt6360_bat_temp_zone(mci, temp);
+		changed = known != mci->bat_temp_known || zone != mci->bat_temp_zone;
+		if (changed) {
+			mci->bat_temp_known = known;
+			mci->bat_temp_zone = zone;
+			if (known)
+				dev_info(mci->dev, "Battery at %d mC: %s\n", temp, names[zone]);
+			ret = mt6360_charger_apply_bat_temp(mci);
+			if (ret)
+				dev_err(mci->dev, "Failed to follow the battery temperature: %d\n",
+					ret);
+		}
+	}
+
+	if (changed)
+		power_supply_changed(mci->psy);
+
+	ret = mt6360_get_chrdet_ext_stat(mci, &pwr_rdy);
+	if (ret || pwr_rdy)
+		queue_delayed_work(system_wq, &mci->bat_temp_work,
+				   msecs_to_jiffies(MT6360_BAT_TEMP_POLL_MS));
+}
+
 /*
  * Charge the monitored battery as it asks: at most its constant charge current and voltage,
  * which also become the most userspace may set, with its precharge current, and ending at its
@@ -804,6 +1029,8 @@ static int mt6360_chg_apply_battery_info(struct mt6360_chg_info *mci)
 		return 0;
 	if (ret)
 		return dev_err_probe(mci->dev, ret, "Failed to get battery info\n");
+
+	mci->bat_info = info;
 
 	if (info->constant_charge_voltage_max_uv > 0) {
 		mci->cv_max = min(info->constant_charge_voltage_max_uv, MT6360_VOREG_MAX);
@@ -857,7 +1084,14 @@ static int mt6360_charger_probe(struct platform_device *pdev)
 	mci->vinovp = 6500000;
 	mci->ichg_max = MT6360_ICHG_MAX;
 	mci->cv_max = MT6360_VOREG_MAX;
+	mci->ichg_req = MT6360_ICHG_MAX;
+	mci->ichg_tlim = MT6360_ICHG_MAX;
+	mci->cv_req = MT6360_VOREG_MAX;
+	mci->cv_tlim = MT6360_VOREG_MAX;
 	mutex_init(&mci->chgdet_lock);
+	ret = devm_mutex_init(&pdev->dev, &mci->chg_lock);
+	if (ret)
+		return ret;
 	platform_set_drvdata(pdev, mci);
 	ret = devm_work_autocancel(&pdev->dev, &mci->chrdet_work, mt6360_chrdet_work);
 	if (ret)
@@ -870,6 +1104,15 @@ static int mt6360_charger_probe(struct platform_device *pdev)
 	mci->regmap = dev_get_regmap(pdev->dev.parent, NULL);
 	if (!mci->regmap)
 		return dev_err_probe(&pdev->dev, -ENODEV, "Failed to get parent regmap\n");
+
+	mci->bat_temp = devm_iio_channel_get(&pdev->dev, "battery-temp");
+	if (IS_ERR(mci->bat_temp)) {
+		ret = PTR_ERR(mci->bat_temp);
+		if (ret != -ENODEV)
+			return dev_err_probe(&pdev->dev, ret,
+					     "Failed to get the battery temperature\n");
+		mci->bat_temp = NULL;
+	}
 
 	ret = mt6360_chg_init_setting(mci);
 	if (ret)
@@ -889,6 +1132,17 @@ static int mt6360_charger_probe(struct platform_device *pdev)
 	if (ret)
 		return ret;
 
+	/* Without a battery to take the limits from, there is nothing to follow */
+	if (!mci->bat_info)
+		mci->bat_temp = NULL;
+
+	if (mci->bat_temp) {
+		ret = devm_delayed_work_autocancel(&pdev->dev, &mci->bat_temp_work,
+						   mt6360_bat_temp_work);
+		if (ret)
+			return ret;
+	}
+
 	ret = mt6360_chg_irq_register(pdev);
 	if (ret)
 		return dev_err_probe(&pdev->dev, ret, "Failed to register irqs\n");
@@ -901,6 +1155,8 @@ static int mt6360_charger_probe(struct platform_device *pdev)
 		return PTR_ERR(mci->otg_rdev);
 
 	schedule_work(&mci->chrdet_work);
+	if (mci->bat_temp)
+		queue_delayed_work(system_wq, &mci->bat_temp_work, 0);
 
 	return 0;
 }
@@ -930,3 +1186,4 @@ module_platform_driver(mt6360_charger_driver);
 MODULE_AUTHOR("Gene Chen <gene_chen@richtek.com>");
 MODULE_DESCRIPTION("MT6360 Charger Driver");
 MODULE_LICENSE("GPL");
+MODULE_IMPORT_NS("IIO_CONSUMER");
