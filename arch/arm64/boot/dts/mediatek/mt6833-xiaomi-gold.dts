@@ -6,6 +6,7 @@
 /dts-v1/;
 #include <dt-bindings/input/input.h>
 #include <dt-bindings/interrupt-controller/irq.h>
+#include <dt-bindings/spmi/spmi.h>
 #include "mt6833.dtsi"
 
 / {
@@ -474,6 +475,19 @@
 			home-key {
 				linux,keycodes = <KEY_VOLUMEUP>;
 			};
+		};
+	};
+};
+
+&spmi {
+	status = "okay";
+
+	/* Its buck 1 (with buck 2) and buck 4 feed the modem; LK turns buck 3 off. */
+	mt6315_3: pmic@3 {
+		compatible = "mediatek,mt6315-regulator";
+		reg = <0x3 SPMI_USID>;
+
+		regulators {
 		};
 	};
 };
