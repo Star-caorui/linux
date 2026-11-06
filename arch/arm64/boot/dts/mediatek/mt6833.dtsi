@@ -226,6 +226,10 @@
 				 * leaves others on. The display's is one Linux takes as off
 				 * at boot, so it never turns it off as unused while the
 				 * bootloader's picture is still being scanned out of it.
+				 * Linux powers these on at probe and turns off at late
+				 * boot those nothing uses. DISP, which the bootloader
+				 * scans its framebuffer out through, stays out until the
+				 * display comes.
 				 */
 				mfg0: power-domain@MT6833_POWER_DOMAIN_MFG0 {
 					reg = <MT6833_POWER_DOMAIN_MFG0>;
@@ -261,6 +265,89 @@
 					clock-names = "disp";
 					mediatek,infracfg = <&infracfg_ao>;
 					#power-domain-cells = <0>;
+				};
+				/*
+				 * ISP, ISP2, IPE, VDEC, VENC and CAM hang off DISP in
+				 * MediaTek's tree, which powers the multimedia bus they
+				 * sit on: they go under it when it comes.
+				 */
+				power-domain@MT6833_POWER_DOMAIN_ISP {
+					reg = <MT6833_POWER_DOMAIN_ISP>;
+					clocks = <&topckgen CLK_TOP_IMG1_SEL>,
+						 <&imgsys1 CLK_IMGSYS1_GALS>,
+						 <&imgsys1 CLK_IMGSYS1_LARB9>;
+					clock-names = "isp", "isp-0", "isp-1";
+					mediatek,infracfg = <&infracfg_ao>;
+					#power-domain-cells = <0>;
+				};
+
+				power-domain@MT6833_POWER_DOMAIN_ISP2 {
+					reg = <MT6833_POWER_DOMAIN_ISP2>;
+					clocks = <&topckgen CLK_TOP_IMG2_SEL>,
+						 <&imgsys2 CLK_IMGSYS2_GALS>,
+						 <&imgsys2 CLK_IMGSYS2_LARB9>,
+						 <&imgsys2 CLK_IMGSYS2_LARB10>;
+					clock-names = "isp2", "isp2-0", "isp2-1", "isp2-2";
+					#power-domain-cells = <0>;
+				};
+
+				power-domain@MT6833_POWER_DOMAIN_IPE {
+					reg = <MT6833_POWER_DOMAIN_IPE>;
+					clocks = <&topckgen CLK_TOP_IPE_SEL>,
+						 <&ipesys CLK_IPE_SMI_SUBCOM>,
+						 <&ipesys CLK_IPE_GALS>,
+						 <&ipesys CLK_IPE_LARB19>,
+						 <&ipesys CLK_IPE_LARB20>;
+					clock-names = "ipe", "ipe-0", "ipe-1", "ipe-2", "ipe-3";
+					mediatek,infracfg = <&infracfg_ao>;
+					#power-domain-cells = <0>;
+				};
+
+				power-domain@MT6833_POWER_DOMAIN_VDEC {
+					reg = <MT6833_POWER_DOMAIN_VDEC>;
+					clocks = <&topckgen CLK_TOP_VDEC_SEL>,
+						 <&vdecsys CLK_VDE2_VDEC_CKEN>,
+						 <&vdecsys CLK_VDE2_LARB1_CKEN>;
+					clock-names = "vdec", "vdec-0", "vdec-1";
+					mediatek,infracfg = <&infracfg_ao>;
+					#power-domain-cells = <0>;
+				};
+
+				power-domain@MT6833_POWER_DOMAIN_VENC {
+					reg = <MT6833_POWER_DOMAIN_VENC>;
+					clocks = <&topckgen CLK_TOP_VENC_SEL>,
+						 <&vencsys CLK_VEN1_CKE1_VENC>;
+					clock-names = "venc", "venc-0";
+					mediatek,infracfg = <&infracfg_ao>;
+					#power-domain-cells = <0>;
+				};
+
+				power-domain@MT6833_POWER_DOMAIN_CAM {
+					reg = <MT6833_POWER_DOMAIN_CAM>;
+					clocks = <&topckgen CLK_TOP_CAM_SEL>,
+						 <&camsys CLK_CAM_M_LARB13>,
+						 <&camsys CLK_CAM_M_LARB14>,
+						 <&camsys CLK_CAM_M_CCU_GALS>,
+						 <&camsys CLK_CAM_M_CAM2MM_GALS>;
+					clock-names = "cam", "cam-0", "cam-1", "cam-2", "cam-3";
+					mediatek,infracfg = <&infracfg_ao>;
+					#address-cells = <1>;
+					#size-cells = <0>;
+					#power-domain-cells = <1>;
+
+					power-domain@MT6833_POWER_DOMAIN_CAM_RAWA {
+						reg = <MT6833_POWER_DOMAIN_CAM_RAWA>;
+						clocks = <&camsys_rawa CLK_CAM_RA_LARBX>;
+						clock-names = "cam_rawa-0";
+						#power-domain-cells = <0>;
+					};
+
+					power-domain@MT6833_POWER_DOMAIN_CAM_RAWB {
+						reg = <MT6833_POWER_DOMAIN_CAM_RAWB>;
+						clocks = <&camsys_rawb CLK_CAM_RB_LARBX>;
+						clock-names = "cam_rawb-0";
+						#power-domain-cells = <0>;
+					};
 				};
 			};
 		};
