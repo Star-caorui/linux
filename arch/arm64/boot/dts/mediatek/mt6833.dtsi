@@ -420,6 +420,15 @@
 			#dma-cells = <1>;
 		};
 
+		auxadc: adc@11001000 {
+			compatible = "mediatek,mt6833-auxadc", "mediatek,mt6765-auxadc";
+			reg = <0 0x11001000 0 0x1000>;
+			clocks = <&infracfg_ao CLK_IFRAO_AUXADC>;
+			clock-names = "main";
+			#io-channel-cells = <1>;
+			status = "disabled";
+		};
+
 		uart0: serial@11002000 {
 			compatible = "mediatek,mt6833-uart", "mediatek,mt6577-uart";
 			reg = <0 0x11002000 0 0x1000>;
