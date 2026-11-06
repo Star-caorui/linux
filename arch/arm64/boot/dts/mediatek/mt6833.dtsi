@@ -389,5 +389,12 @@
 			reg = <0 0x11f01000 0 0x1000>;
 			#clock-cells = <1>;
 		};
+
+		mfgcfg: clock-controller@13fbf000 {
+			compatible = "mediatek,mt6833-mfgcfg";
+			reg = <0 0x13fbf000 0 0x1000>;
+			power-domains = <&spm MT6833_POWER_DOMAIN_MFG1>;
+			#clock-cells = <1>;
+		};
 	};
 };
