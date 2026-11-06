@@ -128,6 +128,22 @@ properties:
       - description: alert when battery temperature is lower than this value
       - description: alert when battery temperature is higher than this value
 
+  alert-low-temp-charge-current-microamp:
+    description: maximum charge current while the battery temperature is below
+      the low alert temperature, but still within the operating range
+
+  alert-low-temp-charge-voltage-microvolt:
+    description: maximum charge voltage while the battery temperature is below
+      the low alert temperature, but still within the operating range
+
+  alert-high-temp-charge-current-microamp:
+    description: maximum charge current while the battery temperature is above
+      the high alert temperature, but still within the operating range
+
+  alert-high-temp-charge-voltage-microvolt:
+    description: maximum charge voltage while the battery temperature is above
+      the high alert temperature, but still within the operating range
+
   # The volt-drop* -properties describe voltage-drop for a battery, described
   # as VDROP in:
   # https://patentimages.storage.googleapis.com/6c/f5/17/c1d901c220f6a9/US20150032394A1.pdf
