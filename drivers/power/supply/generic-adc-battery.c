@@ -19,6 +19,9 @@
 #include <linux/iio/types.h>
 #include <linux/of.h>
 #include <linux/devm-helpers.h>
+#include <linux/property.h>
+
+#include "adc-battery-helper.h"
 
 #define JITTER_DEFAULT 10 /* hope 10ms is enough */
 
@@ -42,12 +45,15 @@ static const char *const gab_chan_name[] = {
 };
 
 struct gab {
+	struct adc_battery_helper helper;	/* must be the first member */
 	struct power_supply *psy;
 	struct power_supply_desc psy_desc;
 	struct iio_channel *channel[GAB_MAX_CHAN_TYPE];
 	struct delayed_work bat_work;
 	int status;
 	struct gpio_desc *charge_finished;
+	bool estimate_capacity;
+	bool helper_ready;
 };
 
 static struct gab *to_generic_bat(struct power_supply *psy)
@@ -59,7 +65,13 @@ static void gab_ext_power_changed(struct power_supply *psy)
 {
 	struct gab *adc_bat = to_generic_bat(psy);
 
-	schedule_delayed_work(&adc_bat->bat_work, msecs_to_jiffies(0));
+	if (adc_bat->estimate_capacity) {
+		/* The helper's first poll looks at the supply anyway */
+		if (smp_load_acquire(&adc_bat->helper_ready))
+			adc_battery_helper_external_power_changed(psy);
+	} else {
+		schedule_delayed_work(&adc_bat->bat_work, msecs_to_jiffies(0));
+	}
 }
 
 static const enum power_supply_property gab_props[] = {
@@ -103,10 +115,38 @@ static int gab_read_channel(struct gab *adc_bat, enum gab_chan_type channel,
 	return 0;
 }
 
+static int gab_get_voltage_and_current_now(struct power_supply *psy, int *volt, int *curr)
+{
+	struct gab *adc_bat = to_generic_bat(psy);
+	int ret;
+
+	ret = gab_read_channel(adc_bat, GAB_VOLTAGE, volt);
+	if (ret)
+		return ret;
+
+	return gab_read_channel(adc_bat, GAB_CURRENT, curr);
+}
+
 static int gab_get_property(struct power_supply *psy,
 		enum power_supply_property psp, union power_supply_propval *val)
 {
 	struct gab *adc_bat = to_generic_bat(psy);
+
+	switch (psp) {
+	case POWER_SUPPLY_PROP_POWER_NOW:
+		return gab_read_channel(adc_bat, GAB_POWER, &val->intval);
+	case POWER_SUPPLY_PROP_TEMP:
+		return gab_read_channel(adc_bat, GAB_TEMP, &val->intval);
+	default:
+		break;
+	}
+
+	if (adc_bat->estimate_capacity) {
+		/* The supply is registered before the helper can be set up */
+		if (!smp_load_acquire(&adc_bat->helper_ready))
+			return -EAGAIN;
+		return adc_battery_helper_get_property(psy, psp, val);
+	}
 
 	switch (psp) {
 	case POWER_SUPPLY_PROP_STATUS:
@@ -116,10 +156,6 @@ static int gab_get_property(struct power_supply *psy,
 		return gab_read_channel(adc_bat, GAB_VOLTAGE, &val->intval);
 	case POWER_SUPPLY_PROP_CURRENT_NOW:
 		return gab_read_channel(adc_bat, GAB_CURRENT, &val->intval);
-	case POWER_SUPPLY_PROP_POWER_NOW:
-		return gab_read_channel(adc_bat, GAB_POWER, &val->intval);
-	case POWER_SUPPLY_PROP_TEMP:
-		return gab_read_channel(adc_bat, GAB_TEMP, &val->intval);
 	default:
 		return -EINVAL;
 	}
@@ -146,6 +182,28 @@ static void gab_work(struct work_struct *work)
 		power_supply_changed(adc_bat->psy);
 }
 
+/*
+ * With the battery current and an OCV table of the monitored battery, estimate
+ * the capacity from the open circuit voltage, as the ADC battery helper does.
+ */
+static bool gab_can_estimate_capacity(struct device *dev, struct gab *adc_bat)
+{
+	struct fwnode_handle *battery;
+	bool ret;
+
+	if (!adc_bat->channel[GAB_VOLTAGE] || !adc_bat->channel[GAB_CURRENT])
+		return false;
+
+	battery = fwnode_find_reference(dev_fwnode(dev), "monitored-battery", 0);
+	if (IS_ERR(battery))
+		return false;
+
+	ret = fwnode_property_present(battery, "ocv-capacity-celsius");
+	fwnode_handle_put(battery);
+
+	return ret;
+}
+
 static irqreturn_t gab_charged(int irq, void *dev_id)
 {
 	struct gab *adc_bat = dev_id;
@@ -164,7 +222,7 @@ static int gab_probe(struct platform_device *pdev)
 	enum power_supply_property *properties;
 	int ret = 0;
 	int chan;
-	int index = ARRAY_SIZE(gab_props);
+	int index;
 	bool any = false;
 
 	adc_bat = devm_kzalloc_obj(&pdev->dev, *adc_bat);
@@ -182,21 +240,7 @@ static int gab_probe(struct platform_device *pdev)
 	psy_desc->get_property = gab_get_property;
 	psy_desc->external_power_changed = gab_ext_power_changed;
 
-	/*
-	 * copying the static properties and allocating extra memory for holding
-	 * the extra configurable properties received from platform data.
-	 */
-	properties = devm_kzalloc_objs(&pdev->dev, *properties,
-				       ARRAY_SIZE(gab_props) + ARRAY_SIZE(gab_chan_name));
-	if (!properties)
-		return -ENOMEM;
-
-	memcpy(properties, gab_props, sizeof(gab_props));
-
-	/*
-	 * getting channel from iio and copying the battery properties
-	 * based on the channel supported by consumer device.
-	 */
+	/* getting channel from iio */
 	for (chan = 0; chan < ARRAY_SIZE(gab_chan_name); chan++) {
 		adc_bat->channel[chan] = devm_iio_channel_get(&pdev->dev, gab_chan_name[chan]);
 		if (IS_ERR(adc_bat->channel[chan])) {
@@ -205,15 +249,6 @@ static int gab_probe(struct platform_device *pdev)
 				return dev_err_probe(&pdev->dev, ret, "Failed to get ADC channel %s\n", gab_chan_name[chan]);
 			adc_bat->channel[chan] = NULL;
 		} else if (adc_bat->channel[chan]) {
-			/* copying properties for supported channels only */
-			int index2;
-
-			for (index2 = 0; index2 < index; index2++) {
-				if (properties[index2] == gab_dyn_props[chan])
-					break;	/* already known */
-			}
-			if (index2 == index)	/* really new */
-				properties[index++] = gab_dyn_props[chan];
 			any = true;
 		}
 	}
@@ -221,6 +256,44 @@ static int gab_probe(struct platform_device *pdev)
 	/* none of the channels are supported so let's bail out */
 	if (!any)
 		return dev_err_probe(&pdev->dev, -ENODEV, "Failed to get any ADC channel\n");
+
+	adc_bat->estimate_capacity = gab_can_estimate_capacity(&pdev->dev, adc_bat);
+
+	/*
+	 * copying the static properties and allocating extra memory for holding
+	 * the extra configurable properties received from platform data.
+	 */
+	properties = devm_kcalloc(&pdev->dev,
+				  ADC_HELPER_NUM_PROPERTIES +
+				  ARRAY_SIZE(gab_dyn_props),
+				  sizeof(*properties),
+				  GFP_KERNEL);
+	if (!properties)
+		return -ENOMEM;
+
+	if (adc_bat->estimate_capacity) {
+		memcpy(properties, adc_battery_helper_properties,
+		       ADC_HELPER_NUM_PROPERTIES * sizeof(*properties));
+		index = ADC_HELPER_NUM_PROPERTIES;
+	} else {
+		memcpy(properties, gab_props, sizeof(gab_props));
+		index = ARRAY_SIZE(gab_props);
+	}
+
+	/* copying the battery properties based on the channels supported */
+	for (chan = 0; chan < ARRAY_SIZE(gab_chan_name); chan++) {
+		int index2;
+
+		if (!adc_bat->channel[chan])
+			continue;
+
+		for (index2 = 0; index2 < index; index2++) {
+			if (properties[index2] == gab_dyn_props[chan])
+				break;	/* already known */
+		}
+		if (index2 == index)	/* really new */
+			properties[index++] = gab_dyn_props[chan];
+	}
 
 	/*
 	 * Total number of properties is equal to static properties
@@ -234,6 +307,24 @@ static int gab_probe(struct platform_device *pdev)
 	adc_bat->psy = devm_power_supply_register(&pdev->dev, psy_desc, &psy_cfg);
 	if (IS_ERR(adc_bat->psy))
 		return dev_err_probe(&pdev->dev, PTR_ERR(adc_bat->psy), "Failed to register power-supply device\n");
+
+	platform_set_drvdata(pdev, adc_bat);
+
+	if (adc_bat->estimate_capacity) {
+		adc_bat->charge_finished = devm_gpiod_get_optional(&pdev->dev, "charged", GPIOD_IN);
+		if (IS_ERR(adc_bat->charge_finished))
+			return PTR_ERR(adc_bat->charge_finished);
+
+		ret = adc_battery_helper_init(&adc_bat->helper, adc_bat->psy,
+					      gab_get_voltage_and_current_now,
+					      adc_bat->charge_finished);
+		if (ret)
+			return dev_err_probe(&pdev->dev, ret, "Failed to estimate the capacity\n");
+
+		/* Pairs with the acquires in gab_get_property() and gab_ext_power_changed() */
+		smp_store_release(&adc_bat->helper_ready, true);
+		return 0;
+	}
 
 	ret = devm_delayed_work_autocancel(&pdev->dev, &adc_bat->bat_work, gab_work);
 	if (ret)
@@ -254,8 +345,6 @@ static int gab_probe(struct platform_device *pdev)
 			return ret;
 	}
 
-	platform_set_drvdata(pdev, adc_bat);
-
 	/* Schedule timer to check current status */
 	schedule_delayed_work(&adc_bat->bat_work,
 			msecs_to_jiffies(0));
@@ -266,6 +355,9 @@ static int __maybe_unused gab_suspend(struct device *dev)
 {
 	struct gab *adc_bat = dev_get_drvdata(dev);
 
+	if (adc_bat->estimate_capacity)
+		return adc_battery_helper_suspend(dev);
+
 	cancel_delayed_work_sync(&adc_bat->bat_work);
 	adc_bat->status = POWER_SUPPLY_STATUS_UNKNOWN;
 	return 0;
@@ -274,6 +366,9 @@ static int __maybe_unused gab_suspend(struct device *dev)
 static int __maybe_unused gab_resume(struct device *dev)
 {
 	struct gab *adc_bat = dev_get_drvdata(dev);
+
+	if (adc_bat->estimate_capacity)
+		return adc_battery_helper_resume(dev);
 
 	/* Schedule timer to check current status */
 	schedule_delayed_work(&adc_bat->bat_work,

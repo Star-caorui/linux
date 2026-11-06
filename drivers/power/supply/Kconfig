@@ -41,6 +41,7 @@ config ADC_BATTERY_HELPER
 config GENERIC_ADC_BATTERY
 	tristate "Generic battery support using IIO"
 	depends on IIO
+	select ADC_BATTERY_HELPER
 	help
 	  Say Y here to enable support for the generic battery driver
 	  which uses IIO framework to read adc.
