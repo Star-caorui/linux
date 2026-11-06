@@ -414,7 +414,7 @@ static int mtk_clk_mux_notifier_cb(struct notifier_block *nb,
 	struct clk_notifier_data *data = _data;
 	struct clk_hw *hw = __clk_get_hw(data->clk);
 	struct mtk_mux_nb *mux_nb = to_mtk_mux_nb(nb);
-	int ret = 0;
+	int index, ret = 0;
 
 	switch (event) {
 	case PRE_RATE_CHANGE:
@@ -423,7 +423,15 @@ static int mtk_clk_mux_notifier_cb(struct notifier_block *nb,
 		break;
 	case POST_RATE_CHANGE:
 	case ABORT_RATE_CHANGE:
-		ret = mux_nb->ops->set_parent(hw, mux_nb->original_index);
+		/*
+		 * The rate change may have moved the mux to another parent,
+		 * and the clock core may already have unprepared the old one:
+		 * go back to the parent the core now has, not the one before.
+		 */
+		index = clk_hw_get_parent_index(hw);
+		if (index < 0)
+			index = mux_nb->original_index;
+		ret = mux_nb->ops->set_parent(hw, index);
 		break;
 	}
 
