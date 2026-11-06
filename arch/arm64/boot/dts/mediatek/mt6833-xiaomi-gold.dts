@@ -27,6 +27,18 @@
 		i2c9 = &i2c9;
 	};
 
+	/*
+	 * As the stock kernel charges it through the MT6360 alone at 15-47 C, before the cycle
+	 * count lowers the voltage: up to 4.46 V (4.47-4.48 V only below 15 C), at 2 A (2.05 A
+	 * for wall chargers), ending at 250 mA.
+	 */
+	battery: battery {
+		compatible = "simple-battery";
+		constant-charge-voltage-max-microvolt = <4460000>;
+		constant-charge-current-max-microamp = <2000000>;
+		charge-term-current-microamp = <250000>;
+	};
+
 	/* the touchscreen's I/O supply, switched by a GPIO; on at handover */
 	touch_iovdd: regulator-touch-iovdd {
 		compatible = "regulator-fixed";
@@ -283,6 +295,18 @@
 		adc {
 			compatible = "mediatek,mt6360-adc";
 			#io-channel-cells = <1>;
+		};
+
+		charger {
+			compatible = "mediatek,mt6360-chg";
+			monitored-battery = <&battery>;
+			richtek,vinovp-microvolt = <14500000>;
+
+			otg_vbus_reg: usb-otg-vbus-regulator {
+				regulator-name = "usb-otg-vbus";
+				regulator-min-microvolt = <4425000>;
+				regulator-max-microvolt = <5825000>;
+			};
 		};
 
 		/*
