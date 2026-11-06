@@ -35,6 +35,7 @@ properties:
               - mediatek,mt6779-pwrap
               - mediatek,mt6795-pwrap
               - mediatek,mt6797-pwrap
+              - mediatek,mt6833-pwrap
               - mediatek,mt6873-pwrap
               - mediatek,mt7622-pwrap
               - mediatek,mt8135-pwrap
