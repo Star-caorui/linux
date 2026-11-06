@@ -20,6 +20,7 @@ properties:
               - mediatek,mt2701-audsys
               - mediatek,mt6765-audsys
               - mediatek,mt6779-audio
+              - mediatek,mt6833-audsys
               - mediatek,mt7622-audsys
               - mediatek,mt8167-audsys
               - mediatek,mt8173-audsys
@@ -41,6 +42,12 @@ properties:
   '#clock-cells':
     const: 1
 
+  power-domains:
+    description:
+      The power domain the clock gates' registers are in, on SoCs where the
+      controller has to power it to reach them.
+    maxItems: 1
+
   audio-controller:
     type: object
 
@@ -49,6 +56,15 @@ required:
   - '#clock-cells'
 
 allOf:
+  - if:
+      properties:
+        compatible:
+          contains:
+            const: mediatek,mt6833-audsys
+    then:
+      required:
+        - power-domains
+
   - if:
       properties:
         compatible:
