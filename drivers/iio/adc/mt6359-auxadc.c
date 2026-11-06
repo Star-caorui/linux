@@ -8,6 +8,7 @@
  */
 
 #include <linux/bitfield.h>
+#include <linux/bitops.h>
 #include <linux/bits.h>
 #include <linux/cleanup.h>
 #include <linux/delay.h>
@@ -45,6 +46,9 @@
 
 #define MT6359_IMP0_CONV_EN		BIT(0)
 #define MT6359_IMP1_IRQ_RDY		BIT(15)
+
+/* Fuel gauge current LSB with the reference design's 5 mOhm sense resistor */
+#define MT6359_FG_CURRENT_LSB_NA	610352
 
 #define MT6363_EXT_CHAN_MASK		GENMASK(2, 0)
 #define MT6363_EXT_PURES_MASK		GENMASK(4, 3)
@@ -147,6 +151,7 @@ struct mtk_pmic_auxadc_chan {
  * @regs:           List of PMIC specific registers
  * @sec_unlock_key: Security unlock key for HK_TOP writes
  * @vref_mV:        AUXADC Reference Voltage (VREF) in millivolts
+ * @ibat_lsb_nA:    Battery current channel LSB in nanoamperes
  * @imp_adc_num:    ADC channel for battery impedance readings
  * @is_spmi:        Defines whether this PMIC communicates over SPMI
  * @no_reset:       If true, this PMIC does not support ADC reset
@@ -160,6 +165,7 @@ struct mtk_pmic_auxadc_info {
 	const u16 *regs;
 	u16 sec_unlock_key;
 	u32 vref_mV;
+	u32 ibat_lsb_nA;
 	u8 imp_adc_num;
 	bool is_spmi;
 	bool no_reset;
@@ -187,7 +193,8 @@ struct mtk_pmic_auxadc_info {
 	MTK_PMIC_ADC_EXT_CHAN(_ch_idx, _req_idx, _req_bit, _rdy_idx, _rdy_bit,	\
 			      -1, 0, 0, _samples, _rnum, _rdiv)
 
-#define MTK_PMIC_IIO_CHAN(_model, _name, _ch_idx, _adc_idx, _nbits, _ch_type)	\
+#define MTK_PMIC_IIO_CHAN_SIGN(_model, _name, _ch_idx, _adc_idx, _nbits,	\
+			       _ch_type, _sign)					\
 {										\
 	.type = _ch_type,							\
 	.channel = _model##_AUXADC_##_ch_idx,					\
@@ -195,7 +202,7 @@ struct mtk_pmic_auxadc_info {
 	.scan_index = PMIC_AUXADC_CHAN_##_ch_idx,				\
 	.datasheet_name = __stringify(_name),					\
 	.scan_type =  {								\
-		.sign = 'u',							\
+		.sign = _sign,							\
 		.realbits = _nbits,						\
 		.storagebits = 16,						\
 		.endianness = IIO_CPU						\
@@ -203,6 +210,9 @@ struct mtk_pmic_auxadc_info {
 	.indexed = 1,								\
 	.info_mask_separate = BIT(IIO_CHAN_INFO_RAW) | BIT(IIO_CHAN_INFO_SCALE)	\
 }
+
+#define MTK_PMIC_IIO_CHAN(_model, _name, _ch_idx, _adc_idx, _nbits, _ch_type)	\
+	MTK_PMIC_IIO_CHAN_SIGN(_model, _name, _ch_idx, _adc_idx, _nbits, _ch_type, 'u')
 
 static const struct iio_chan_spec mt6357_auxadc_channels[] = {
 	MTK_PMIC_IIO_CHAN(MT6357, bat_adc, BATADC, 0, 15, IIO_RESISTANCE),
@@ -314,7 +324,7 @@ static const struct iio_chan_spec mt6359_auxadc_channels[] = {
 
 	/* Battery impedance channels */
 	MTK_PMIC_IIO_CHAN(MT6359, batt_v, VBAT, 0, 15, IIO_VOLTAGE),
-	MTK_PMIC_IIO_CHAN(MT6359, batt_i, IBAT, 0, 15, IIO_CURRENT),
+	MTK_PMIC_IIO_CHAN_SIGN(MT6359, batt_i, IBAT, 0, 16, IIO_CURRENT, 's'),
 };
 
 static const struct mtk_pmic_auxadc_chan mt6359_auxadc_ch_desc[] = {
@@ -542,8 +552,9 @@ static int mt6359_read_imp(struct mt6359_auxadc *adc_dev,
 
 	if (vbat)
 		*vbat = val_v;
+	/* The fuel gauge current is in two's complement, positive when charging */
 	if (ibat)
-		*ibat = val_i;
+		*ibat = sign_extend32(val_i, 15);
 
 	return 0;
 }
@@ -579,6 +590,7 @@ static const struct mtk_pmic_auxadc_info mt6359_chip_info = {
 	.sec_unlock_key = 0x6359,
 	.read_imp = mt6359_read_imp,
 	.vref_mV = 1800,
+	.ibat_lsb_nA = MT6359_FG_CURRENT_LSB_NA,
 };
 
 static const struct mtk_pmic_auxadc_info mt6363_chip_info = {
@@ -769,6 +781,13 @@ static int mt6359_auxadc_read_raw(struct iio_dev *indio_dev,
 	int ret;
 
 	if (mask == IIO_CHAN_INFO_SCALE) {
+		/* The battery current comes from the fuel gauge, not the AUXADC */
+		if (chan->scan_index == PMIC_AUXADC_CHAN_IBAT) {
+			*val = 0;
+			*val2 = cinfo->ibat_lsb_nA;
+			return IIO_VAL_INT_PLUS_MICRO;
+		}
+
 		/* Full scale is VREF times the resistance ratio */
 		*val = desc->r_ratio.numerator * cinfo->vref_mV;
 		*val2 = desc->r_ratio.denominator << chan->scan_type.realbits;
