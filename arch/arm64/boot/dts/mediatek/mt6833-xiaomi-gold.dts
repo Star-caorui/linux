@@ -51,6 +51,30 @@
 		regulator-boot-on;
 	};
 
+	/*
+	 * The battery's NTC thermistor, a Murata NCP15XH103 (10 kOhm, B 3380 K) as the stock
+	 * kernel's table has it, on the MT6359P's BATON pin, pulled up to VBIF28 (2.8 V) through
+	 * 24 kOhm. Its voltage in mV, 2800 * R / (R + 24000), by temperature in millicelsius.
+	 */
+	battery_ntc: thermal-sensor-battery {
+		compatible = "generic-adc-thermal";
+		#thermal-sensor-cells = <0>;
+		#io-channel-cells = <0>;
+		io-channels = <&pmic_adc MT6359_AUXADC_BAT_TEMP>;
+		io-channel-names = "sensor-channel";
+		temperature-lookup-table = <
+			(-40000) 2494  (-35000) 2410  (-30000) 2311  (-25000) 2198
+			(-20000) 2071  (-15000) 1935  (-10000) 1790   (-5000) 1639
+			      0  1488     5000  1340    10000  1197    15000  1062
+			  20000   938    25000   824    30000   720    35000   629
+			  40000   548    45000   476    50000   414    55000   359
+			  60000   312    65000   272    70000   238    75000   208
+			  80000   182    85000   160    90000   141    95000   124
+			 100000   109   105000    97   110000    86   115000    76
+			 120000    68   125000    61
+		>;
+	};
+
 	reboot-mode {
 		compatible = "nvmem-reboot-mode";
 		nvmem-cells = <&rtc_fastboot>;
@@ -246,6 +270,12 @@
 		dramc-rk1@1bffff000 {
 			reg = <0x1 0xbffff000 0 0x1000>;
 			no-map;
+		};
+	};
+
+	thermal-zones {
+		battery-thermal {
+			thermal-sensors = <&battery_ntc>;
 		};
 	};
 };
@@ -562,6 +592,14 @@
 				regulator-name = "vibr";
 				regulator-min-microvolt = <1200000>;
 				regulator-max-microvolt = <3300000>;
+			};
+
+			/* Pulls the battery thermistor up */
+			mt6359p_vbif28_reg: ldo_vbif28 {
+				regulator-name = "vbif28";
+				regulator-min-microvolt = <2800000>;
+				regulator-max-microvolt = <2800000>;
+				regulator-always-on;
 			};
 
 			mt6359p_vrf12_reg: ldo_vrf12 {
