@@ -235,3 +235,13 @@
 		};
 	};
 };
+
+&u2phy {
+	status = "okay";
+};
+
+/* Device mode only until the Type-C port controller and its role switch are in */
+&usb {
+	dr_mode = "peripheral";
+	status = "okay";
+};
