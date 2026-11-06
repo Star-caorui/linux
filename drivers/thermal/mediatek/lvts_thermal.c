@@ -1522,6 +1522,69 @@ static void lvts_remove(struct platform_device *pdev)
 		lvts_ctrl_set_enable(&lvts_td->lvts_ctrl[i], false);
 }
 
+/*
+ * MT6833 has a single thermal domain with four controllers. Its
+ * calibration words are laid out as MT8192's: the first holds the golden
+ * temperature in bits 31-24, each of the next thirteen holds a sensor's
+ * reference count in bits 23-0, in the order of the sensors below.
+ */
+static const struct lvts_ctrl_data mt6833_lvts_data_ctrl[] = {
+	{
+		.lvts_sensor = {
+			{ .dt_id = MT6833_LITTLE_CPU0,
+			  .cal_offsets = { 0x04, 0x05, 0x06 } },
+			{ .dt_id = MT6833_LITTLE_CPU1,
+			  .cal_offsets = { 0x08, 0x09, 0x0a } },
+			{ .dt_id = MT6833_LITTLE_CPU2,
+			  .cal_offsets = { 0x0c, 0x0d, 0x0e } },
+			{ .dt_id = MT6833_LITTLE_CPU3,
+			  .cal_offsets = { 0x10, 0x11, 0x12 } }
+		},
+		VALID_SENSOR_MAP(1, 1, 1, 1),
+		.offset = 0x0,
+		.mode = LVTS_MSR_FILTERED_MODE,
+	},
+	{
+		.lvts_sensor = {
+			{ .dt_id = MT6833_BIG_CPU0,
+			  .cal_offsets = { 0x14, 0x15, 0x16 } },
+			{ .dt_id = MT6833_BIG_CPU1,
+			  .cal_offsets = { 0x18, 0x19, 0x1a } }
+		},
+		VALID_SENSOR_MAP(1, 1, 0, 0),
+		.offset = 0x100,
+		.mode = LVTS_MSR_FILTERED_MODE,
+	},
+	{
+		.lvts_sensor = {
+			{ .dt_id = MT6833_GPU0,
+			  .cal_offsets = { 0x1c, 0x1d, 0x1e } },
+			{ .dt_id = MT6833_GPU1,
+			  .cal_offsets = { 0x20, 0x21, 0x22 } },
+			{ .dt_id = MT6833_SOC,
+			  .cal_offsets = { 0x24, 0x25, 0x26 } },
+			{ .dt_id = MT6833_CONN,
+			  .cal_offsets = { 0x28, 0x29, 0x2a } }
+		},
+		VALID_SENSOR_MAP(1, 1, 1, 1),
+		.offset = 0x200,
+		.mode = LVTS_MSR_FILTERED_MODE,
+	},
+	{
+		.lvts_sensor = {
+			{ .dt_id = MT6833_MD_4G,
+			  .cal_offsets = { 0x2c, 0x2d, 0x2e } },
+			{ .dt_id = MT6833_MD_5G,
+			  .cal_offsets = { 0x30, 0x31, 0x32 } },
+			{ .dt_id = MT6833_MD_3G,
+			  .cal_offsets = { 0x34, 0x35, 0x36 } }
+		},
+		VALID_SENSOR_MAP(1, 1, 1, 0),
+		.offset = 0x300,
+		.mode = LVTS_MSR_FILTERED_MODE,
+	}
+};
+
 static const struct lvts_ctrl_data mt7987_lvts_ap_data_ctrl[] = {
 	{
 		.lvts_sensor = {
@@ -1628,6 +1691,15 @@ static const u32 mt7988_init_cmds[] = {
 	0xC1030300, 0xC1030420, 0xC1030500, 0xC10307A6, 0xC1030CFC,
 	0xC1030A8C, 0xC103098D, 0xC10308F1, 0xC1030B04, 0xC1030E01,
 	0xC10306B8
+};
+
+/*
+ * MT6833's device setup, as MediaTek's MT6833 driver writes it, followed by
+ * the automatic RC calibration and the low power single mode.
+ */
+static const u32 mt6833_init_cmds[] = {
+	0xC1030300, 0xC10307A6, 0xC1030500, 0xC1030420, 0xC1030A8C,
+	0xC1030CFC, 0xC103098D, 0xC10308F1, 0xC1030E01, 0xC10306B8
 };
 
 /*
@@ -2028,6 +2100,21 @@ static const struct lvts_platform_ops lvts_platform_ops_mt8196 = {
 	.lvts_temp_to_raw = lvts_temp_to_raw_mt8196,
 };
 
+static const struct lvts_data mt6833_lvts_data = {
+	.lvts_ctrl	= mt6833_lvts_data_ctrl,
+	.conn_cmd	= mt7988_conn_cmds,
+	.init_cmd	= mt6833_init_cmds,
+	.num_lvts_ctrl	= ARRAY_SIZE(mt6833_lvts_data_ctrl),
+	.num_conn_cmd	= ARRAY_SIZE(mt7988_conn_cmds),
+	.num_init_cmd	= ARRAY_SIZE(mt6833_init_cmds),
+	.temp_factor	= LVTS_COEFF_A_MT8195,
+	.temp_offset	= LVTS_COEFF_B_MT8195,
+	.gt_calib_bit_offset = 24,
+	.def_calibration = 35000,
+	.num_cal_offsets = LVTS_NUM_CAL_OFFSETS_MT7988,
+	.ops = &lvts_platform_ops_mt7988,
+};
+
 static const struct lvts_data mt7987_lvts_ap_data = {
 	.lvts_ctrl	= mt7987_lvts_ap_data_ctrl,
 	.num_lvts_ctrl	= ARRAY_SIZE(mt7987_lvts_ap_data_ctrl),
@@ -2185,6 +2272,7 @@ static const struct lvts_data mt8196_lvts_ap_data = {
 };
 
 static const struct of_device_id lvts_of_match[] = {
+	{ .compatible = "mediatek,mt6833-lvts", .data = &mt6833_lvts_data },
 	{ .compatible = "mediatek,mt7987-lvts-ap", .data = &mt7987_lvts_ap_data },
 	{ .compatible = "mediatek,mt7988-lvts-ap", .data = &mt7988_lvts_ap_data },
 	{ .compatible = "mediatek,mt8186-lvts", .data = &mt8186_lvts_data },
