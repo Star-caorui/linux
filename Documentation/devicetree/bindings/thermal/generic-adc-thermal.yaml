@@ -30,6 +30,13 @@ properties:
   io-channel-names:
     const: sensor-channel
 
+  '#io-channel-cells':
+    description:
+      The temperature is also an IIO channel, in millicelsius, for consumers
+      such as a battery or charger driver. It is the only channel, so its
+      specifier is empty, or 0 if there is one.
+    enum: [0, 1]
+
   temperature-lookup-table:
     description: |
       Lookup table to map the relation between ADC value and temperature.
