@@ -30,6 +30,7 @@ properties:
       - mediatek,mt2701-disp-mutex
       - mediatek,mt2712-disp-mutex
       - mediatek,mt6795-disp-mutex
+      - mediatek,mt6833-disp-mutex
       - mediatek,mt8167-disp-mutex
       - mediatek,mt8173-disp-mutex
       - mediatek,mt8183-disp-mutex
@@ -85,6 +86,7 @@ allOf:
               - mediatek,mt2701-disp-mutex
               - mediatek,mt2712-disp-mutex
               - mediatek,mt6795-disp-mutex
+              - mediatek,mt6833-disp-mutex
               - mediatek,mt8173-disp-mutex
               - mediatek,mt8186-disp-mutex
               - mediatek,mt8186-mdp3-mutex
