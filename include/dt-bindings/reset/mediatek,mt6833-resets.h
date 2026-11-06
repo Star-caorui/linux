@@ -1,0 +1,15 @@
+/* SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause) */
+/*
+ * MediaTek MT6833 infracfg_ao resets, numbered as MediaTek's device tree numbers them
+ */
+
+#ifndef _DT_BINDINGS_RESET_MEDIATEK_MT6833_H
+#define _DT_BINDINGS_RESET_MEDIATEK_MT6833_H
+
+#define MT6833_INFRA_RST0_LVTS_AP		0
+#define MT6833_INFRA_RST4_LVTS_MCU		1
+#define MT6833_INFRA_RST1_UFSHCI		2
+#define MT6833_INFRA_RST2_UNIPRO		3
+#define MT6833_INFRA_RST3_UFS_CRYPTO		4
+
+#endif /* _DT_BINDINGS_RESET_MEDIATEK_MT6833_H */
