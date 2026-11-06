@@ -33,6 +33,7 @@
 #include "mtk_drm_drv.h"
 
 #define DSI_START		0x00
+#define SKEWCAL_START			BIT(4)
 
 #define DSI_INTEN		0x08
 
@@ -42,6 +43,7 @@
 #define TE_RDY_INT_FLAG			BIT(2)
 #define VM_DONE_INT_FLAG		BIT(3)
 #define EXT_TE_RDY_INT_FLAG		BIT(4)
+#define SKEWCAL_DONE_INT_FLAG		BIT(11)
 #define DSI_BUSY			BIT(31)
 
 #define DSI_CON_CTRL		0x10
@@ -106,6 +108,9 @@
 #define DSI_RACK		0x84
 #define RACK				BIT(0)
 
+#define DSI_TIME_CON0		0xa0
+#define SKEWCAL_PRD			GENMASK(31, 16)
+
 #define DSI_PHY_LCCON		0x104
 #define LC_HS_TX_EN			BIT(0)
 #define LC_ULPM_EN			BIT(1)
@@ -115,6 +120,11 @@
 #define LD0_HS_TX_EN			BIT(0)
 #define LD0_ULPM_EN			BIT(1)
 #define LD0_WAKEUP_EN			BIT(2)
+
+#define DSI_PHY_SYNCON		0x10c
+#define HS_SYNC_CODE			GENMASK(15, 0)
+#define HS_SKEWCAL_PAT			GENMASK(23, 16)
+#define HS_DB_SYNC_EN			BIT(24)
 
 #define DSI_PHY_TIMECON0	0x110
 #define LPX				GENMASK(7, 0)
@@ -194,6 +204,8 @@ struct mtk_dsi_driver_data {
 	bool has_size_ctl;
 	bool cmdq_long_packet_ctl;
 	bool support_per_frame_lp;
+	bool has_skewcal;
+	u32 max_data_rate;
 };
 
 struct mtk_dsi {
@@ -788,12 +800,52 @@ static void mtk_dsi_poweroff(struct mtk_dsi *dsi)
 	dsi->lanes_ready = false;
 }
 
+/*
+ * Above 1.5 Gbps per lane, D-PHY 1.2 receivers need the skew calibration
+ * sequence before the first high speed transfer. From MediaTek's
+ * DSI_MIPI_deskew().
+ */
+static void mtk_dsi_skew_calibration(struct mtk_dsi *dsi)
+{
+	u32 syncon, val;
+	int ret;
+
+	syncon = readl(dsi->regs + DSI_PHY_SYNCON);
+	writel(FIELD_PREP(HS_SYNC_CODE, 0xffff) | FIELD_PREP(HS_SKEWCAL_PAT, 0xaa),
+	       dsi->regs + DSI_PHY_SYNCON);
+	mtk_dsi_mask(dsi, DSI_TIME_CON0, SKEWCAL_PRD, FIELD_PREP(SKEWCAL_PRD, 6));
+
+	writel(0, dsi->regs + DSI_START);
+	ret = readl_poll_timeout(dsi->regs + DSI_INTSTA, val, !(val & DSI_BUSY),
+				 4, 2000000);
+	if (ret)
+		dev_warn(dsi->host.dev, "DSI busy before skew calibration\n");
+
+	mtk_dsi_mask(dsi, DSI_PHY_SYNCON, HS_DB_SYNC_EN, HS_DB_SYNC_EN);
+	mtk_dsi_mask(dsi, DSI_PHY_TIMECON2, DA_HS_SYNC, FIELD_PREP(DA_HS_SYNC, 2));
+	mtk_dsi_mask(dsi, DSI_INTSTA, SKEWCAL_DONE_INT_FLAG, 0);
+	mtk_dsi_mask(dsi, DSI_START, SKEWCAL_START, 0);
+	mtk_dsi_mask(dsi, DSI_START, SKEWCAL_START, SKEWCAL_START);
+
+	ret = readl_poll_timeout(dsi->regs + DSI_INTSTA, val,
+				 val & SKEWCAL_DONE_INT_FLAG, 10, 50000);
+	if (ret)
+		dev_warn(dsi->host.dev, "skew calibration timed out\n");
+
+	mtk_dsi_mask(dsi, DSI_INTSTA, SKEWCAL_DONE_INT_FLAG, 0);
+	mtk_dsi_mask(dsi, DSI_START, SKEWCAL_START, 0);
+	writel(syncon, dsi->regs + DSI_PHY_SYNCON);
+	mtk_dsi_mask(dsi, DSI_PHY_TIMECON2, DA_HS_SYNC, FIELD_PREP(DA_HS_SYNC, 1));
+}
+
 static void mtk_output_dsi_enable(struct mtk_dsi *dsi)
 {
 	if (dsi->enabled)
 		return;
 
 	mtk_dsi_set_mode(dsi);
+	if (dsi->driver_data->has_skewcal && dsi->data_rate > 1500000000)
+		mtk_dsi_skew_calibration(dsi);
 	mtk_dsi_start(dsi);
 
 	dsi->enabled = true;
@@ -881,7 +933,8 @@ mtk_dsi_bridge_mode_valid(struct drm_bridge *bridge,
 	if (bpp < 0)
 		return MODE_ERROR;
 
-	if (mode->clock * bpp / dsi->lanes > 1500000)
+	if (div_u64((u64)mode->clock * HZ_PER_KHZ * bpp, dsi->lanes) >
+	    (dsi->driver_data->max_data_rate ?: 1500000000))
 		return MODE_CLOCK_HIGH;
 
 	return MODE_OK;
