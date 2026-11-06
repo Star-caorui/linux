@@ -1095,6 +1095,28 @@ static const struct mtk_clk_desc ifrao_desc = {
 	.rst_desc = &ifrao_rst_desc,
 };
 
+/* Move the GPU over to mfg_ref_sel while MFGPLL relocks, as on MT8192 */
+static int clk_mt6833_reg_mfg_mux_notifier(struct device *dev, struct clk *clk)
+{
+	struct mtk_mux_nb *mfg_mux_nb;
+	int i;
+
+	mfg_mux_nb = devm_kzalloc(dev, sizeof(*mfg_mux_nb), GFP_KERNEL);
+	if (!mfg_mux_nb)
+		return -ENOMEM;
+
+	for (i = 0; i < ARRAY_SIZE(top_mtk_muxes); i++)
+		if (top_mtk_muxes[i].id == CLK_TOP_MFG_PLL_SEL)
+			break;
+	if (i == ARRAY_SIZE(top_mtk_muxes))
+		return -EINVAL;
+
+	mfg_mux_nb->ops = top_mtk_muxes[i].ops;
+	mfg_mux_nb->bypass_index = 0; /* mfg_ref_sel */
+
+	return devm_mtk_clk_mux_notifier_register(dev, clk, mfg_mux_nb);
+}
+
 static const struct mtk_clk_desc topck_desc = {
 	.factor_clks = top_divs,
 	.num_factor_clks = ARRAY_SIZE(top_divs),
@@ -1103,6 +1125,8 @@ static const struct mtk_clk_desc topck_desc = {
 	.composite_clks = top_muxes,
 	.num_composite_clks = ARRAY_SIZE(top_muxes),
 	.clk_lock = &mt6833_clk_lock,
+	.clk_notifier_func = clk_mt6833_reg_mfg_mux_notifier,
+	.mfg_clk_idx = CLK_TOP_MFG_PLL_SEL,
 };
 
 static const struct of_device_id of_match_clk_mt6833[] = {
