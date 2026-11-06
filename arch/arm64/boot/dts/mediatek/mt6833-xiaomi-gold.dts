@@ -286,9 +286,9 @@
 		};
 
 		/*
-		 * As gold's stock device tree constrains them. Left out until their consumers are
-		 * in, so that Linux does not switch them: LDO1 (the fingerprint sensor's), LDO2
-		 * (the touchscreen's), LDO3 and LDO5 (the microSD card's).
+		 * As gold's stock device tree constrains them (LDO2 as its overlay does). Left out
+		 * until their consumers are in, so that Linux does not switch them: LDO1 (the
+		 * fingerprint sensor's), LDO3 and LDO5 (the microSD card's).
 		 */
 		regulator {
 			compatible = "mediatek,mt6360-regulator";
@@ -311,6 +311,13 @@
 							   MT6360_OPMODE_LP
 							   MT6360_OPMODE_ULP>;
 				regulator-always-on;
+			};
+
+			/* the touchscreen's analog supply (VTP) */
+			mt6360_ldo2_reg: ldo2 {
+				regulator-name = "vtp";
+				regulator-min-microvolt = <3300000>;
+				regulator-max-microvolt = <3300000>;
 			};
 
 			mt6360_ldo6_reg: ldo6 {
@@ -784,7 +791,6 @@
 
 /*
  * The touchscreen: an FT3683G here, a Goodix GT9916R in other units, on the one chip select. Its analog
- * supply, the MT6360's LDO2 (VTP), has no driver yet.
  */
 &spi4 {
 	pinctrl-names = "default";
@@ -798,6 +804,7 @@
 		spi-max-frequency = <6000000>;
 		interrupts-extended = <&pio 14 IRQ_TYPE_EDGE_FALLING>;
 		reset-gpios = <&pio 15 GPIO_ACTIVE_LOW>;
+		avdd-supply = <&mt6360_ldo2_reg>;
 		iovdd-supply = <&touch_iovdd>;
 		touchscreen-size-x = <1080>;
 		touchscreen-size-y = <2400>;
