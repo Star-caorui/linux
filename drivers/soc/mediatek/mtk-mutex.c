@@ -79,6 +79,18 @@
 #define MT8167_MUTEX_MOD_DISP_DITHER		15
 #define MT8167_MUTEX_MOD_DISP_UFOE		16
 
+#define MT6833_MUTEX_MOD_DISP_OVL0		0
+#define MT6833_MUTEX_MOD_DISP_OVL0_2L		1
+#define MT6833_MUTEX_MOD_DISP_RDMA0		2
+#define MT6833_MUTEX_MOD_DISP_COLOR0		4
+#define MT6833_MUTEX_MOD_DISP_CCORR0		5
+#define MT6833_MUTEX_MOD_DISP_AAL0		7
+#define MT6833_MUTEX_MOD_DISP_GAMMA0		8
+#define MT6833_MUTEX_MOD_DISP_POSTMASK0		9
+#define MT6833_MUTEX_MOD_DISP_DITHER0		10
+#define MT6833_MUTEX_MOD_DISP_WDMA0		15
+#define MT6833_MUTEX_MOD_DISP_PWM0		16
+
 #define MT8192_MUTEX_MOD_DISP_OVL0		0
 #define MT8192_MUTEX_MOD_DISP_OVL0_2L		1
 #define MT8192_MUTEX_MOD_DISP_RDMA0		2
@@ -554,6 +566,20 @@ static const u8 mt8188_mdp_mutex_table_mod[MUTEX_MOD_IDX_MAX] = {
 	[MUTEX_MOD_IDX_MDP_WROT3] = MT8195_MUTEX_MOD_MDP_WROT3,
 };
 
+static const u8 mt6833_mutex_mod[DDP_COMPONENT_ID_MAX] = {
+	[DDP_COMPONENT_AAL0] = MT6833_MUTEX_MOD_DISP_AAL0,
+	[DDP_COMPONENT_CCORR] = MT6833_MUTEX_MOD_DISP_CCORR0,
+	[DDP_COMPONENT_COLOR0] = MT6833_MUTEX_MOD_DISP_COLOR0,
+	[DDP_COMPONENT_DITHER0] = MT6833_MUTEX_MOD_DISP_DITHER0,
+	[DDP_COMPONENT_GAMMA] = MT6833_MUTEX_MOD_DISP_GAMMA0,
+	[DDP_COMPONENT_OVL0] = MT6833_MUTEX_MOD_DISP_OVL0,
+	[DDP_COMPONENT_OVL_2L0] = MT6833_MUTEX_MOD_DISP_OVL0_2L,
+	[DDP_COMPONENT_POSTMASK0] = MT6833_MUTEX_MOD_DISP_POSTMASK0,
+	[DDP_COMPONENT_PWM0] = MT6833_MUTEX_MOD_DISP_PWM0,
+	[DDP_COMPONENT_RDMA0] = MT6833_MUTEX_MOD_DISP_RDMA0,
+	[DDP_COMPONENT_WDMA0] = MT6833_MUTEX_MOD_DISP_WDMA0,
+};
+
 static const u8 mt8192_mutex_mod[DDP_COMPONENT_ID_MAX] = {
 	[DDP_COMPONENT_AAL0] = MT8192_MUTEX_MOD_DISP_AAL0,
 	[DDP_COMPONENT_CCORR] = MT8192_MUTEX_MOD_DISP_CCORR0,
@@ -752,6 +778,14 @@ static const struct mtk_mutex_data mt6795_mutex_driver_data = {
 	.mutex_mod_reg = MT2701_MUTEX0_MOD0,
 	.mutex_mod1_reg = MT2701_MUTEX0_MOD1,
 	.mutex_sof_reg = MT2701_MUTEX0_SOF0,
+};
+
+static const struct mtk_mutex_data mt6833_mutex_driver_data = {
+	.mutex_mod = mt6833_mutex_mod,
+	.mutex_sof = mt8183_mutex_sof,
+	.mutex_mod_reg = MT8183_MUTEX0_MOD0,
+	.mutex_mod1_reg = MT8183_MUTEX0_MOD1,
+	.mutex_sof_reg = MT8183_MUTEX0_SOF0,
 };
 
 static const struct mtk_mutex_data mt8167_mutex_driver_data = {
@@ -1134,6 +1168,7 @@ static const struct of_device_id mutex_driver_dt_match[] = {
 	{ .compatible = "mediatek,mt2701-disp-mutex", .data = &mt2701_mutex_driver_data },
 	{ .compatible = "mediatek,mt2712-disp-mutex", .data = &mt2712_mutex_driver_data },
 	{ .compatible = "mediatek,mt6795-disp-mutex", .data = &mt6795_mutex_driver_data },
+	{ .compatible = "mediatek,mt6833-disp-mutex", .data = &mt6833_mutex_driver_data },
 	{ .compatible = "mediatek,mt8167-disp-mutex", .data = &mt8167_mutex_driver_data },
 	{ .compatible = "mediatek,mt8173-disp-mutex", .data = &mt8173_mutex_driver_data },
 	{ .compatible = "mediatek,mt8183-disp-mutex", .data = &mt8183_mutex_driver_data },
