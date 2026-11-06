@@ -40,6 +40,17 @@
 		charge-term-current-microamp = <250000>;
 
 		/*
+		 * The stock JEITA steps for chargers other than PPS, in whole degrees: no
+		 * charging at -10 C and below or at 58 C and above; 490 mA at -9 to 0 C (980 mA
+		 * at 1 to 5 C: taken as 490 mA here, which the MT6360 sets as 400 mA); 2.45-3.6 A
+		 * at 6-47 C, more than the MT6360 alone gives; at 48-57 C only up to 4.1 V.
+		 */
+		operating-range-celsius = <(-9) 57>;
+		alert-celsius = <6 47>;
+		alert-low-temp-charge-current-microamp = <490000>;
+		alert-high-temp-charge-voltage-microvolt = <4100000>;
+
+		/*
 		 * The stock gauge's profile for the first of the two cells it knows (battery0, the
 		 * one it takes when the authentication chip names neither) at 25 C: OCV by depth of
 		 * discharge down to 2.88 V (5104 mAh), and the median of its discharge resistance
@@ -361,6 +372,8 @@
 
 		mt6360_charger: charger {
 			compatible = "mediatek,mt6360-chg";
+			io-channels = <&battery_ntc>;
+			io-channel-names = "battery-temp";
 			monitored-battery = <&battery>;
 			richtek,vinovp-microvolt = <14500000>;
 
