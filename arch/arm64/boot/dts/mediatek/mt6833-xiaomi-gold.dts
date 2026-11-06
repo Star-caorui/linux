@@ -4,6 +4,8 @@
  */
 
 /dts-v1/;
+#include <dt-bindings/input/input.h>
+#include <dt-bindings/interrupt-controller/irq.h>
 #include "mt6833.dtsi"
 
 / {
@@ -199,6 +201,35 @@
 		dramc-rk1@1bffff000 {
 			reg = <0x1 0xbffff000 0 0x1000>;
 			no-map;
+		};
+	};
+};
+
+&pwrap {
+	pmic: pmic {
+		compatible = "mediatek,mt6359";
+		interrupts-extended = <&pio 118 IRQ_TYPE_LEVEL_HIGH>;
+		interrupt-controller;
+		#interrupt-cells = <2>;
+
+		rtc {
+			compatible = "mediatek,mt6359-rtc", "mediatek,mt6358-rtc";
+		};
+
+		keys {
+			compatible = "mediatek,mt6359-keys";
+			/* Holding power alone resets the phone, as under the stock kernel */
+			mediatek,long-press-mode = <1>;
+			power-off-time-sec = <0>;
+
+			power-key {
+				linux,keycodes = <KEY_POWER>;
+				wakeup-source;
+			};
+
+			home-key {
+				linux,keycodes = <KEY_VOLUMEUP>;
+			};
 		};
 	};
 };
