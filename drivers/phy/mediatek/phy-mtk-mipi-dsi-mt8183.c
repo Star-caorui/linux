@@ -100,7 +100,10 @@ static void mtk_mipi_tx_pll_disable(struct clk_hw *hw)
 static int mtk_mipi_tx_pll_determine_rate(struct clk_hw *hw,
 					  struct clk_rate_request *req)
 {
-	req->rate = clamp_val(req->rate, 125000000, 1600000000);
+	struct mtk_mipi_tx *mipi_tx = mtk_mipi_tx_from_clk_hw(hw);
+
+	req->rate = clamp_val(req->rate, 125000000,
+			      mipi_tx->driver_data->max_data_rate);
 
 	return 0;
 }
@@ -173,6 +176,21 @@ static void mtk_mipi_tx_power_off_signal(struct phy *phy)
 }
 
 const struct mtk_mipitx_data mt8183_mipitx_data = {
+	.max_data_rate = 1600000000,
+	.mipi_tx_clk_ops = &mtk_mipi_tx_pll_ops,
+	.mipi_tx_enable_signal = mtk_mipi_tx_power_on_signal,
+	.mipi_tx_disable_signal = mtk_mipi_tx_power_off_signal,
+};
+
+/*
+ * MT6833's PLL is MT8183's (MediaTek's mtk_mipi_tx_pll_prepare_mt6833()
+ * programs it the same way as for MT6873, the SoC MT8192 is based on), but
+ * its D-PHY runs at up to 2.5 Gbps per lane: its PLL takes rates up to 3 GHz
+ * (mtk_mipi_tx_pll_round_rate()), and its bootloader drives the lanes at
+ * 2326 Mbps on the Redmi Note 13 5G.
+ */
+const struct mtk_mipitx_data mt6833_mipitx_data = {
+	.max_data_rate = 2500000000U,
 	.mipi_tx_clk_ops = &mtk_mipi_tx_pll_ops,
 	.mipi_tx_enable_signal = mtk_mipi_tx_power_on_signal,
 	.mipi_tx_disable_signal = mtk_mipi_tx_power_off_signal,
