@@ -7,6 +7,7 @@
 #include <dt-bindings/interrupt-controller/arm-gic.h>
 #include <dt-bindings/interrupt-controller/irq.h>
 #include <dt-bindings/phy/phy.h>
+#include <dt-bindings/power/mediatek,mt6833-power.h>
 #include <dt-bindings/reset/mediatek,mt6833-resets.h>
 
 / {
@@ -206,6 +207,51 @@
 			interrupt-controller;
 			interrupts = <GIC_SPI 212 IRQ_TYPE_LEVEL_HIGH 0>;
 			#interrupt-cells = <2>;
+		};
+
+		scpsys: syscon@10006000 {
+			compatible = "mediatek,mt6833-scpsys", "syscon", "simple-mfd";
+			reg = <0 0x10006000 0 0x1000>;
+
+			/* System Power Manager */
+			spm: power-controller {
+				compatible = "mediatek,mt6833-power-controller";
+				#address-cells = <1>;
+				#size-cells = <0>;
+				#power-domain-cells = <1>;
+
+				/*
+				 * Only the GPU's: Linux turns off the domains it knows of
+				 * that nothing uses, and the bootloader leaves others on.
+				 */
+				mfg0: power-domain@MT6833_POWER_DOMAIN_MFG0 {
+					reg = <MT6833_POWER_DOMAIN_MFG0>;
+					#address-cells = <1>;
+					#size-cells = <0>;
+					#power-domain-cells = <1>;
+
+					mfg1: power-domain@MT6833_POWER_DOMAIN_MFG1 {
+						reg = <MT6833_POWER_DOMAIN_MFG1>;
+						clocks = <&topckgen CLK_TOP_MFG_PLL_SEL>,
+							 <&topckgen CLK_TOP_MFG_REF_SEL>;
+						clock-names = "mfg", "alt";
+						mediatek,infracfg = <&infracfg_ao>;
+						#address-cells = <1>;
+						#size-cells = <0>;
+						#power-domain-cells = <1>;
+
+						power-domain@MT6833_POWER_DOMAIN_MFG2 {
+							reg = <MT6833_POWER_DOMAIN_MFG2>;
+							#power-domain-cells = <0>;
+						};
+
+						power-domain@MT6833_POWER_DOMAIN_MFG3 {
+							reg = <MT6833_POWER_DOMAIN_MFG3>;
+							#power-domain-cells = <0>;
+						};
+					};
+				};
+			};
 		};
 
 		watchdog: watchdog@10007000 {
