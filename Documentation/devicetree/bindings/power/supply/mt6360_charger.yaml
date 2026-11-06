@@ -30,6 +30,18 @@ properties:
       also become the most that may be set, and its precharge and termination
       currents are applied.
 
+  io-channels:
+    maxItems: 1
+
+  io-channel-names:
+    items:
+      - const: battery-temp
+    description:
+      The battery temperature, in millicelsius, when the battery thermistor is
+      not on the MT6360's TS pin. With it the charger charges the monitored
+      battery only within its operating temperature range, and at its alert
+      temperatures with at most its alert charge current and voltage.
+
   usb-otg-vbus-regulator:
     type: object
     description: OTG boost regulator.
