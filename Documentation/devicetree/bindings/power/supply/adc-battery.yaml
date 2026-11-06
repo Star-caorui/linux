@@ -20,6 +20,12 @@ description:
   least the temperature channel is supposed to measure the battery
   temperature.
 
+  If there is a current channel and the monitored battery has OCV
+  capacity tables, its factory internal resistance and its constant
+  charge voltage, the capacity is estimated from the open circuit
+  voltage. For this the current channel must be positive while the
+  battery charges, that is when the current flows into it.
+
 allOf:
   - $ref: power-supply.yaml#
 
