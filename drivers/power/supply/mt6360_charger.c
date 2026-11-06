@@ -26,6 +26,7 @@
 #define MT6360_PMU_CHG_CTRL8	0x318
 #define MT6360_PMU_CHG_CTRL9	0x319
 #define MT6360_PMU_CHG_CTRL10	0x31A
+#define MT6360_PMU_CHG_CTRL13	0x31D
 #define MT6360_PMU_DEVICE_TYPE	0x322
 #define MT6360_PMU_USB_STATUS1	0x327
 #define MT6360_PMU_CHG_STAT	0x34A
@@ -64,6 +65,8 @@
 #define MT6360_IEOC_MASK	GENMASK(7, 4)
 /* MT6360_PMU_CHG_CTRL10 */
 #define MT6360_OTG_OC_MASK	GENMASK(3, 0)
+/* MT6360_PMU_CHG_CTRL13 */
+#define MT6360_CHG_WDT_EN_MASK	BIT(7)
 /* MT6360_PMU_DEVICE_TYPE */
 #define MT6360_USBCHGEN_MASK	BIT(7)
 /* MT6360_PMU_USB_STATUS1 */
@@ -777,6 +780,11 @@ static int mt6360_chg_init_setting(struct mt6360_chg_info *mci)
 	if (ret)
 		return dev_err_probe(mci->dev, ret,
 				     "%s: Failed to config otg oc to 3A\n", __func__);
+	ret = regmap_update_bits(mci->regmap, MT6360_PMU_CHG_CTRL13,
+				 MT6360_CHG_WDT_EN_MASK, 0);
+	if (ret)
+		return dev_err_probe(mci->dev, ret,
+				     "%s: Failed to disable charger watchdog\n", __func__);
 	return 0;
 }
 
