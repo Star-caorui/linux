@@ -136,6 +136,120 @@
 		};
 	};
 
+	/*
+	 * MediaTek's GPU OPPs up to 790 MHz, which every MT6833 bin runs (MT6833M
+	 * stops there), at MediaTek's voltages: all at or below 0.75 V, where
+	 * MediaTek keeps the GPU SRAM at 0.75 V.
+	 */
+	gpu_opp_table: opp-table-gpu {
+		compatible = "operating-points-v2";
+
+		opp-390000000 {
+			opp-hz = /bits/ 64 <390000000>;
+			opp-microvolt = <575000>;
+		};
+
+		opp-415000000 {
+			opp-hz = /bits/ 64 <415000000>;
+			opp-microvolt = <581250>;
+		};
+
+		opp-441000000 {
+			opp-hz = /bits/ 64 <441000000>;
+			opp-microvolt = <587500>;
+		};
+
+		opp-467000000 {
+			opp-hz = /bits/ 64 <467000000>;
+			opp-microvolt = <593750>;
+		};
+
+		opp-493000000 {
+			opp-hz = /bits/ 64 <493000000>;
+			opp-microvolt = <600000>;
+		};
+
+		opp-519000000 {
+			opp-hz = /bits/ 64 <519000000>;
+			opp-microvolt = <606250>;
+		};
+
+		opp-545000000 {
+			opp-hz = /bits/ 64 <545000000>;
+			opp-microvolt = <612500>;
+		};
+
+		opp-570000000 {
+			opp-hz = /bits/ 64 <570000000>;
+			opp-microvolt = <618750>;
+		};
+
+		opp-596000000 {
+			opp-hz = /bits/ 64 <596000000>;
+			opp-microvolt = <625000>;
+		};
+
+		opp-622000000 {
+			opp-hz = /bits/ 64 <622000000>;
+			opp-microvolt = <631250>;
+		};
+
+		opp-648000000 {
+			opp-hz = /bits/ 64 <648000000>;
+			opp-microvolt = <637500>;
+		};
+
+		opp-674000000 {
+			opp-hz = /bits/ 64 <674000000>;
+			opp-microvolt = <643750>;
+		};
+
+		opp-700000000 {
+			opp-hz = /bits/ 64 <700000000>;
+			opp-microvolt = <650000>;
+		};
+
+		opp-711000000 {
+			opp-hz = /bits/ 64 <711000000>;
+			opp-microvolt = <656250>;
+		};
+
+		opp-722000000 {
+			opp-hz = /bits/ 64 <722000000>;
+			opp-microvolt = <662500>;
+		};
+
+		opp-733000000 {
+			opp-hz = /bits/ 64 <733000000>;
+			opp-microvolt = <668750>;
+		};
+
+		opp-745000000 {
+			opp-hz = /bits/ 64 <745000000>;
+			opp-microvolt = <675000>;
+		};
+
+		opp-756000000 {
+			opp-hz = /bits/ 64 <756000000>;
+			opp-microvolt = <681250>;
+		};
+
+		opp-767000000 {
+			opp-hz = /bits/ 64 <767000000>;
+			opp-microvolt = <687500>;
+		};
+
+		opp-778000000 {
+			opp-hz = /bits/ 64 <778000000>;
+			opp-microvolt = <693750>;
+		};
+
+		opp-790000000 {
+			opp-hz = /bits/ 64 <790000000>;
+			opp-microvolt = <700000>;
+		};
+	};
+
 	psci {
 		compatible = "arm,psci-1.0";
 		method = "smc";
@@ -861,6 +975,23 @@
 			compatible = "mediatek,mt6833-imp-iic-wrap-n";
 			reg = <0 0x11f01000 0 0x1000>;
 			#clock-cells = <1>;
+		};
+
+		gpu: gpu@13000000 {
+			compatible = "mediatek,mt6833-mali", "mediatek,mt8370-mali",
+				     "arm,mali-valhall-jm";
+			reg = <0 0x13000000 0 0x4000>;
+			interrupts = <GIC_SPI 366 IRQ_TYPE_LEVEL_HIGH 0>,
+				     <GIC_SPI 365 IRQ_TYPE_LEVEL_HIGH 0>,
+				     <GIC_SPI 364 IRQ_TYPE_LEVEL_HIGH 0>;
+			interrupt-names = "job", "mmu", "gpu";
+			clocks = <&mfgcfg CLK_MFGCFG_BG3D>;
+			operating-points-v2 = <&gpu_opp_table>;
+			power-domains = <&spm MT6833_POWER_DOMAIN_MFG2>,
+					<&spm MT6833_POWER_DOMAIN_MFG3>;
+			power-domain-names = "core0", "core1";
+			#cooling-cells = <2>;
+			status = "disabled";
 		};
 
 		mfgcfg: clock-controller@13fbf000 {

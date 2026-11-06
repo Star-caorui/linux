@@ -399,6 +399,11 @@
 	};
 };
 
+&gpu {
+	mali-supply = <&mt6359p_vproc1_reg>;
+	status = "okay";
+};
+
 &i2c2 {
 	/* The main rear camera's sensor, EEPROM and focus motors */
 	clock-frequency = <1000000>;
