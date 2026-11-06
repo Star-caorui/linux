@@ -245,3 +245,8 @@
 	dr_mode = "peripheral";
 	status = "okay";
 };
+
+/* Its supply, the MT6359P's VEMC, stays on: the bootloader leaves it so, until the regulators are in */
+&ufshci {
+	status = "okay";
+};
