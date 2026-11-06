@@ -83,6 +83,8 @@ struct mt6397_rtc {
 	int                     irq;
 	u32                     addr_base;
 	const struct mtk_rtc_data *data;
+	/* Years since 1900 of the year register's 0 */
+	int                     year_offset;
 };
 
 #endif /* _LINUX_MFD_MT6397_RTC_H_ */

@@ -93,6 +93,14 @@ properties:
           documentation names them RTC_NEW_SPARE0 to RTC_NEW_SPARE3 and gives
           the first to a fuel gauge.
 
+      mediatek,year-base:
+        description:
+          The year the RTC's year register counts from. MediaTek's
+          bootloaders and coreboot count from 1968; without the property
+          the year is read as counted from 1900.
+        $ref: /schemas/types.yaml#/definitions/uint32
+        enum: [1900, 1968]
+
     required:
       - compatible
 

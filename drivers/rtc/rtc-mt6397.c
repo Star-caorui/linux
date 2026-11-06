@@ -78,7 +78,7 @@ static int __mtk_rtc_read_time(struct mt6397_rtc *rtc,
 	tm->tm_mday = data[RTC_OFFSET_DOM];
 	tm->tm_wday = data[RTC_OFFSET_DOW];
 	tm->tm_mon = data[RTC_OFFSET_MTH] & RTC_TC_MTH_MASK;
-	tm->tm_year = data[RTC_OFFSET_YEAR];
+	tm->tm_year = data[RTC_OFFSET_YEAR] + rtc->year_offset;
 
 	ret = regmap_read(rtc->regmap, rtc->addr_base + RTC_TC_SEC, sec);
 exit:
@@ -120,7 +120,7 @@ static int mtk_rtc_set_time(struct device *dev, struct rtc_time *tm)
 	data[RTC_OFFSET_DOM] = tm->tm_mday;
 	data[RTC_OFFSET_DOW] = tm->tm_wday;
 	data[RTC_OFFSET_MTH] = tm->tm_mon;
-	data[RTC_OFFSET_YEAR] = tm->tm_year;
+	data[RTC_OFFSET_YEAR] = tm->tm_year - rtc->year_offset;
 
 	mutex_lock(&rtc->lock);
 	ret = regmap_bulk_write(rtc->regmap, rtc->addr_base + RTC_TC_SEC,
@@ -166,7 +166,7 @@ static int mtk_rtc_read_alarm(struct device *dev, struct rtc_wkalrm *alm)
 	tm->tm_hour = data[RTC_OFFSET_HOUR] & RTC_AL_HOU_MASK;
 	tm->tm_mday = data[RTC_OFFSET_DOM] & RTC_AL_DOM_MASK;
 	tm->tm_mon = data[RTC_OFFSET_MTH] & RTC_AL_MTH_MASK;
-	tm->tm_year = data[RTC_OFFSET_YEAR] & RTC_AL_YEA_MASK;
+	tm->tm_year = (data[RTC_OFFSET_YEAR] & RTC_AL_YEA_MASK) + rtc->year_offset;
 
 	tm->tm_mon--;
 
@@ -202,7 +202,7 @@ static int mtk_rtc_set_alarm(struct device *dev, struct rtc_wkalrm *alm)
 	data[RTC_OFFSET_MTH] = ((data[RTC_OFFSET_MTH] & ~(RTC_AL_MTH_MASK)) |
 				(tm->tm_mon & RTC_AL_MTH_MASK));
 	data[RTC_OFFSET_YEAR] = ((data[RTC_OFFSET_YEAR] & ~(RTC_AL_YEA_MASK)) |
-				(tm->tm_year & RTC_AL_YEA_MASK));
+				((tm->tm_year - rtc->year_offset) & RTC_AL_YEA_MASK));
 
 	if (alm->enabled) {
 		ret = regmap_bulk_write(rtc->regmap,
@@ -331,6 +331,7 @@ static int mtk_rtc_probe(struct platform_device *pdev)
 		.reg_write = mtk_rtc_nvram_write,
 	};
 	struct mt6397_rtc *rtc;
+	u32 year_base;
 	int ret;
 
 	rtc = devm_kzalloc_obj(&pdev->dev, struct mt6397_rtc);
@@ -343,6 +344,14 @@ static int mtk_rtc_probe(struct platform_device *pdev)
 	rtc->addr_base = res->start;
 
 	rtc->data = of_device_get_match_data(&pdev->dev);
+
+	if (!of_property_read_u32(pdev->dev.of_node, "mediatek,year-base", &year_base)) {
+		if (year_base != 1900 && year_base != 1968)
+			return dev_err_probe(&pdev->dev, -EINVAL,
+					     "mediatek,year-base %u is neither 1900 nor 1968\n",
+					     year_base);
+		rtc->year_offset = year_base - 1900;
+	}
 
 	rtc->irq = platform_get_irq(pdev, 0);
 	if (rtc->irq < 0)
@@ -371,10 +380,21 @@ static int mtk_rtc_probe(struct platform_device *pdev)
 	device_init_wakeup(&pdev->dev, true);
 
 	rtc->rtc_dev->ops = &mtk_rtc_ops;
-	rtc->rtc_dev->range_min = RTC_TIMESTAMP_BEGIN_1900;
-	rtc->rtc_dev->range_max = mktime64(2027, 12, 31, 23, 59, 59);
-	rtc->rtc_dev->start_secs = mktime64(1968, 1, 2, 0, 0, 0);
-	rtc->rtc_dev->set_start_time = true;
+	/*
+	 * The year register counts 128 years. MediaTek's bootloaders and
+	 * coreboot count them from 1968; this driver has counted them from
+	 * 1900, read from 1968 on. A board whose firmware keeps the clock
+	 * says which with mediatek,year-base.
+	 */
+	if (rtc->year_offset) {
+		rtc->rtc_dev->range_min = mktime64(1968, 1, 1, 0, 0, 0);
+		rtc->rtc_dev->range_max = mktime64(2095, 12, 31, 23, 59, 59);
+	} else {
+		rtc->rtc_dev->range_min = RTC_TIMESTAMP_BEGIN_1900;
+		rtc->rtc_dev->range_max = mktime64(2027, 12, 31, 23, 59, 59);
+		rtc->rtc_dev->start_secs = mktime64(1968, 1, 2, 0, 0, 0);
+		rtc->rtc_dev->set_start_time = true;
+	}
 
 	ret = devm_rtc_register_device(rtc->rtc_dev);
 	if (ret)
