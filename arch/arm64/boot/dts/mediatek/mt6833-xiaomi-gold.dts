@@ -15,6 +15,16 @@
 	compatible = "xiaomi,gold", "mediatek,mt6833";
 	chassis-type = "handset";
 
+	aliases {
+		i2c2 = &i2c2;
+		i2c3 = &i2c3;
+		i2c4 = &i2c4;
+		i2c5 = &i2c5;
+		i2c7 = &i2c7;
+		i2c8 = &i2c8;
+		i2c9 = &i2c9;
+	};
+
 	reboot-mode {
 		compatible = "nvmem-reboot-mode";
 		nvmem-cells = <&rtc_fastboot>;
@@ -214,6 +224,63 @@
 	};
 };
 
+&i2c2 {
+	/* The main rear camera's sensor, EEPROM and focus motors */
+	clock-frequency = <1000000>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&i2c2_pins>;
+	status = "okay";
+};
+
+&i2c3 {
+	/* The NFC controller (ST21NFC) */
+	clock-frequency = <400000>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&i2c3_pins>;
+	status = "okay";
+};
+
+&i2c4 {
+	/* The front camera's sensor and EEPROM, a focus motor */
+	clock-frequency = <400000>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&i2c4_pins>;
+	status = "okay";
+};
+
+&i2c5 {
+	/* The MT6360 PMIC: in high-speed mode, push-pull, as the stock kernel drives it */
+	clock-frequency = <3400000>;
+	mediatek,use-push-pull;
+	pinctrl-names = "default";
+	pinctrl-0 = <&i2c5_pins>;
+	status = "okay";
+};
+
+&i2c7 {
+	/* The speaker amplifier (SIA81xx), the cameras' LDOs, the LN8000 charge pump */
+	clock-frequency = <400000>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&i2c7_pins>;
+	status = "okay";
+};
+
+&i2c8 {
+	/* The second rear camera's sensor and EEPROM */
+	clock-frequency = <400000>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&i2c8_pins>;
+	status = "okay";
+};
+
+&i2c9 {
+	/* The third rear camera's sensor and EEPROM */
+	clock-frequency = <400000>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&i2c9_pins>;
+	status = "okay";
+};
+
 &keypad {
 	pinctrl-names = "default";
 	pinctrl-0 = <&keypad_pins>;
@@ -234,6 +301,55 @@
 };
 
 &pio {
+	i2c2_pins: i2c2-pins {
+		pins-bus {
+			pinmux = <PINMUX_GPIO101__FUNC_SCL2>,
+				 <PINMUX_GPIO102__FUNC_SDA2>;
+		};
+	};
+
+	i2c3_pins: i2c3-pins {
+		pins-bus {
+			pinmux = <PINMUX_GPIO103__FUNC_SCL3>,
+				 <PINMUX_GPIO104__FUNC_SDA3>;
+		};
+	};
+
+	i2c4_pins: i2c4-pins {
+		pins-bus {
+			pinmux = <PINMUX_GPIO105__FUNC_SCL4>,
+				 <PINMUX_GPIO106__FUNC_SDA4>;
+		};
+	};
+
+	i2c5_pins: i2c5-pins {
+		pins-bus {
+			pinmux = <PINMUX_GPIO107__FUNC_SCL5>,
+				 <PINMUX_GPIO108__FUNC_SDA5>;
+		};
+	};
+
+	i2c7_pins: i2c7-pins {
+		pins-bus {
+			pinmux = <PINMUX_GPIO111__FUNC_SCL7>,
+				 <PINMUX_GPIO112__FUNC_SDA7>;
+		};
+	};
+
+	i2c8_pins: i2c8-pins {
+		pins-bus {
+			pinmux = <PINMUX_GPIO113__FUNC_SCL8>,
+				 <PINMUX_GPIO114__FUNC_SDA8>;
+		};
+	};
+
+	i2c9_pins: i2c9-pins {
+		pins-bus {
+			pinmux = <PINMUX_GPIO141__FUNC_SCL9>,
+				 <PINMUX_GPIO142__FUNC_SDA9>;
+		};
+	};
+
 	keypad_pins: keypad-pins {
 		pins-col0 {
 			pinmux = <PINMUX_GPIO79__FUNC_KPCOL0>;
