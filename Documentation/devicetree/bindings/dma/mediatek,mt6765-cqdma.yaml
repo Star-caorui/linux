@@ -1,0 +1,86 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/dma/mediatek,mt6765-cqdma.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: MediaTek Command-Queue DMA Controller
+
+maintainers:
+  - Sean Wang <sean.wang@mediatek.com>
+
+description:
+  The Command-Queue DMA controller (CQDMA) is a memory-to-memory DMA engine
+  with a few physical channels, each with its own registers and interrupt,
+  that the driver spreads virtual channels over.
+
+allOf:
+  - $ref: dma-controller.yaml#
+
+properties:
+  compatible:
+    oneOf:
+      - const: mediatek,mt6765-cqdma
+      - items:
+          - enum:
+              - mediatek,mt6833-cqdma
+          - const: mediatek,mt6765-cqdma
+
+  reg:
+    description: The registers of each physical channel
+    minItems: 1
+    maxItems: 4
+
+  interrupts:
+    description: The interrupt of each physical channel
+    minItems: 1
+    maxItems: 4
+
+  clocks:
+    maxItems: 1
+
+  clock-names:
+    const: cqdma
+
+  "#dma-cells":
+    description: The virtual channel number
+    const: 1
+
+  dma-channels:
+    description: The number of physical channels (3 if absent)
+    minimum: 1
+    maximum: 4
+
+  dma-requests:
+    description: The number of virtual channels (32 if absent)
+
+required:
+  - compatible
+  - reg
+  - interrupts
+  - clocks
+  - clock-names
+  - "#dma-cells"
+
+unevaluatedProperties: false
+
+examples:
+  - |
+    #include <dt-bindings/clock/mediatek,mt6833-clk.h>
+    #include <dt-bindings/interrupt-controller/arm-gic.h>
+    #include <dt-bindings/interrupt-controller/irq.h>
+
+    dma-controller@10212000 {
+        compatible = "mediatek,mt6833-cqdma", "mediatek,mt6765-cqdma";
+        reg = <0x10212000 0x80>, <0x10212100 0x80>,
+              <0x10212200 0x80>, <0x10212300 0x80>;
+        interrupts = <GIC_SPI 154 IRQ_TYPE_LEVEL_HIGH>,
+                     <GIC_SPI 155 IRQ_TYPE_LEVEL_HIGH>,
+                     <GIC_SPI 156 IRQ_TYPE_LEVEL_HIGH>,
+                     <GIC_SPI 157 IRQ_TYPE_LEVEL_HIGH>;
+        clocks = <&infracfg_ao CLK_IFRAO_CQ_DMA>;
+        clock-names = "cqdma";
+        dma-channels = <4>;
+        dma-requests = <10>;
+        #dma-cells = <1>;
+    };
