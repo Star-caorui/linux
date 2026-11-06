@@ -13,6 +13,13 @@
 	compatible = "xiaomi,gold", "mediatek,mt6833";
 	chassis-type = "handset";
 
+	reboot-mode {
+		compatible = "nvmem-reboot-mode";
+		nvmem-cells = <&rtc_fastboot>;
+		nvmem-cell-names = "reboot-mode";
+		mode-bootloader = <1>;
+	};
+
 	chosen {
 		#address-cells = <2>;
 		#size-cells = <2>;
@@ -216,6 +223,18 @@
 			compatible = "mediatek,mt6359-rtc", "mediatek,mt6358-rtc";
 			/* as gold's preloader, LK and stock kernel count the years */
 			mediatek,year-base = <1968>;
+
+			nvmem-layout {
+				compatible = "fixed-layout";
+				#address-cells = <1>;
+				#size-cells = <1>;
+
+				/* PDN1 bit 13 (bit 5 of its high byte): LK enters fastboot and clears it */
+				rtc_fastboot: fastboot@5 {
+					reg = <5 1>;
+					bits = <5 1>;
+				};
+			};
 		};
 
 		keys {
