@@ -19,6 +19,7 @@
 	chassis-type = "handset";
 
 	aliases {
+		i2c1 = &i2c1;
 		i2c2 = &i2c2;
 		i2c3 = &i2c3;
 		i2c4 = &i2c4;
@@ -330,6 +331,33 @@
 	status = "okay";
 };
 
+/*
+ * The stock software leaves this bus to the SCP, which runs the sensors; Linux does not start
+ * the SCP, so the AP's controller takes the pins. Also here: the ambient light and proximity
+ * sensor (AMS TCS3701) at 0x39.
+ */
+&i2c1 {
+	clock-frequency = <400000>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&i2c1_pins>;
+	status = "okay";
+
+	/* the magnetometer: the stock SCP firmware knows a QMC6308 and an MMC5603 */
+	magnetometer@2c {
+		compatible = "qstcorp,qmc6308";
+		reg = <0x2c>;
+		vdd-supply = <&mt6359p_vio18_reg>;
+		mount-matrix = "0", "-1", "0",
+			       "1", "0", "0",
+			       "0", "0", "1";
+	};
+
+	magnetometer@30 {
+		compatible = "memsic,mmc5603";
+		reg = <0x30>;
+	};
+};
+
 &i2c2 {
 	/* The main rear camera's sensor, EEPROM and focus motors */
 	clock-frequency = <1000000>;
@@ -492,6 +520,13 @@
 };
 
 &pio {
+	i2c1_pins: i2c1-pins {
+		pins-bus {
+			pinmux = <PINMUX_GPIO99__FUNC_SCL1>,
+				 <PINMUX_GPIO100__FUNC_SDA1>;
+		};
+	};
+
 	i2c2_pins: i2c2-pins {
 		pins-bus {
 			pinmux = <PINMUX_GPIO101__FUNC_SCL2>,
