@@ -38,6 +38,37 @@
 		constant-charge-voltage-max-microvolt = <4460000>;
 		constant-charge-current-max-microamp = <2000000>;
 		charge-term-current-microamp = <250000>;
+
+		/*
+		 * The stock gauge's profile for the first of the two cells it knows (battery0, the
+		 * one it takes when the authentication chip names neither) at 25 C: OCV by depth of
+		 * discharge down to 2.88 V (5104 mAh), and the median of its discharge resistance
+		 * from 10 to 90 %. The stock kernel reports a design capacity of 5000 mAh.
+		 */
+		charge-full-design-microamp-hours = <5000000>;
+		factory-internal-resistance-micro-ohms = <54000>;
+		ocv-capacity-celsius = <25>;
+		ocv-capacity-table-0 = <4445000 100>, <4379000 95>, <4321000 90>, <4260000 85>,
+				       <4196000 80>, <4134000 75>, <4077000 70>, <4024000 65>,
+				       <3976000 60>, <3919000 55>, <3871000 50>, <3842000 45>,
+				       <3818000 40>, <3800000 35>, <3784000 30>, <3761000 25>,
+				       <3740000 20>, <3712000 15>, <3687000 10>, <3623000 5>,
+				       <3569000 4>, <3498000 3>, <3397000 2>, <3232000 1>,
+				       <2880000 0>;
+	};
+
+	/*
+	 * The MT6359P measures the battery voltage, and its fuel gauge the current through the
+	 * 5 mOhm sense resistor, positive while charging.
+	 */
+	fuel-gauge {
+		compatible = "adc-battery";
+		io-channels = <&pmic_adc MT6359_AUXADC_BATADC>,
+			      <&pmic_adc MT6359_AUXADC_IBAT>,
+			      <&battery_ntc>;
+		io-channel-names = "voltage", "current", "temperature";
+		monitored-battery = <&battery>;
+		power-supplies = <&mt6360_charger>;
 	};
 
 	/* the touchscreen's I/O supply, switched by a GPIO; on at handover */
@@ -328,7 +359,7 @@
 			#io-channel-cells = <1>;
 		};
 
-		charger {
+		mt6360_charger: charger {
 			compatible = "mediatek,mt6360-chg";
 			monitored-battery = <&battery>;
 			richtek,vinovp-microvolt = <14500000>;
