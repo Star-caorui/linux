@@ -214,6 +214,8 @@
 
 		rtc {
 			compatible = "mediatek,mt6359-rtc", "mediatek,mt6358-rtc";
+			/* as gold's preloader, LK and stock kernel count the years */
+			mediatek,year-base = <1968>;
 		};
 
 		keys {
