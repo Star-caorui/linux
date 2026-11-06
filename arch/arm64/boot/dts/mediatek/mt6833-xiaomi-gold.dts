@@ -576,6 +576,13 @@
 		};
 	};
 
+	imu_pins: imu-pins {
+		pins-irq {
+			pinmux = <PINMUX_GPIO3__FUNC_GPIO3>;
+			bias-pull-down;
+		};
+	};
+
 	keypad_pins: keypad-pins {
 		pins-col0 {
 			pinmux = <PINMUX_GPIO79__FUNC_KPCOL0>;
@@ -588,6 +595,15 @@
 		pins-irq {
 			pinmux = <PINMUX_GPIO10__FUNC_GPIO10>;
 			bias-pull-up;
+		};
+	};
+
+	spi2_pins: spi2-pins {
+		pins-spi {
+			pinmux = <PINMUX_GPIO31__FUNC_SPI2_CLK>,
+				 <PINMUX_GPIO32__FUNC_SPI2_CSB>,
+				 <PINMUX_GPIO33__FUNC_SPI2_MO>,
+				 <PINMUX_GPIO34__FUNC_SPI2_MI>;
 		};
 	};
 };
@@ -885,6 +901,28 @@
 				linux,keycodes = <KEY_VOLUMEUP>;
 			};
 		};
+	};
+};
+
+/* The stock software leaves this bus to the SCP, as SCP_SPI2; see i2c1 */
+&spi2 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&spi2_pins>;
+	mediatek,pad-select = <0>;
+	status = "okay";
+
+	/* an ST LSM6DSO here; the stock SCP firmware also knows a Bosch BMI320 */
+	imu@0 {
+		compatible = "st,lsm6dso";
+		reg = <0>;
+		spi-max-frequency = <10000000>;
+		interrupts-extended = <&pio 3 IRQ_TYPE_LEVEL_HIGH>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&imu_pins>;
+		vddio-supply = <&mt6359p_vio18_reg>;
+		mount-matrix = "1", "0", "0",
+			       "0", "-1", "0",
+			       "0", "0", "-1";
 	};
 };
 
