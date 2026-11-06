@@ -40,6 +40,7 @@
 /* MT6360_PMU_CHG_CTRL2 */
 #define MT6360_IINLMTSEL_SHFT	(2)
 #define MT6360_IINLMTSEL_MASK	GENMASK(3, 2)
+#define MT6360_TE_EN_MASK	BIT(4)
 /* MT6360_PMU_CHG_CTRL3 */
 #define MT6360_IAICR_SHFT	(2)
 #define MT6360_IAICR_MASK	GENMASK(7, 2)
@@ -134,6 +135,8 @@ struct mt6360_chg_info {
 	bool bc12_en;
 	int psy_usb_type;
 	struct work_struct chrdet_work;
+	u32 ichg_max;
+	u32 cv_max;
 };
 
 enum mt6360_iinlmtsel {
@@ -269,7 +272,7 @@ static int mt6360_charger_get_ichg(struct mt6360_chg_info *mci,
 static int mt6360_charger_get_max_ichg(struct mt6360_chg_info *mci,
 				       union power_supply_propval *val)
 {
-	val->intval = MT6360_ICHG_MAX;
+	val->intval = mci->ichg_max;
 	return 0;
 }
 
@@ -292,7 +295,7 @@ static int mt6360_charger_get_cv(struct mt6360_chg_info *mci,
 static int mt6360_charger_get_max_cv(struct mt6360_chg_info *mci,
 				     union power_supply_propval *val)
 {
-	val->intval = MT6360_VOREG_MAX;
+	val->intval = mci->cv_max;
 	return 0;
 }
 
@@ -376,7 +379,8 @@ static int mt6360_charger_set_ichg(struct mt6360_chg_info *mci,
 {
 	u32 sel;
 
-	linear_range_get_selector_within(&mt6360_chg_range[MT6360_RANGE_ICHG], val->intval, &sel);
+	linear_range_get_selector_within(&mt6360_chg_range[MT6360_RANGE_ICHG],
+					 min_t(u32, val->intval, mci->ichg_max), &sel);
 	return regmap_update_bits(mci->regmap,
 				  MT6360_PMU_CHG_CTRL7,
 				  MT6360_ICHG_MASK,
@@ -388,7 +392,8 @@ static int mt6360_charger_set_cv(struct mt6360_chg_info *mci,
 {
 	u32 sel;
 
-	linear_range_get_selector_within(&mt6360_chg_range[MT6360_RANGE_VOREG], val->intval, &sel);
+	linear_range_get_selector_within(&mt6360_chg_range[MT6360_RANGE_VOREG],
+					 min_t(u32, val->intval, mci->cv_max), &sel);
 	return regmap_update_bits(mci->regmap,
 				  MT6360_PMU_CHG_CTRL4,
 				  MT6360_VOREG_MASK,
@@ -775,6 +780,60 @@ static int mt6360_chg_init_setting(struct mt6360_chg_info *mci)
 	return 0;
 }
 
+/*
+ * Charge the monitored battery as it asks: at most its constant charge current and voltage,
+ * which also become the most userspace may set, with its precharge current, and ending at its
+ * termination current.
+ */
+static int mt6360_chg_apply_battery_info(struct mt6360_chg_info *mci)
+{
+	struct power_supply_battery_info *info;
+	union power_supply_propval val;
+	int ret;
+
+	ret = power_supply_get_battery_info(mci->psy, &info);
+	if (ret == -ENOENT)
+		return 0;
+	if (ret)
+		return dev_err_probe(mci->dev, ret, "Failed to get battery info\n");
+
+	if (info->constant_charge_voltage_max_uv > 0) {
+		mci->cv_max = min(info->constant_charge_voltage_max_uv, MT6360_VOREG_MAX);
+		val.intval = mci->cv_max;
+		ret = mt6360_charger_set_cv(mci, &val);
+		if (ret)
+			return dev_err_probe(mci->dev, ret, "Failed to set charge voltage\n");
+	}
+
+	if (info->constant_charge_current_max_ua > 0) {
+		mci->ichg_max = min(info->constant_charge_current_max_ua, MT6360_ICHG_MAX);
+		val.intval = mci->ichg_max;
+		ret = mt6360_charger_set_ichg(mci, &val);
+		if (ret)
+			return dev_err_probe(mci->dev, ret, "Failed to set charge current\n");
+	}
+
+	if (info->precharge_current_ua > 0) {
+		val.intval = info->precharge_current_ua;
+		ret = mt6360_charger_set_iprechg(mci, &val);
+		if (ret)
+			return dev_err_probe(mci->dev, ret, "Failed to set precharge current\n");
+	}
+
+	if (info->charge_term_current_ua > 0) {
+		val.intval = info->charge_term_current_ua;
+		ret = mt6360_charger_set_ieoc(mci, &val);
+		if (!ret)
+			ret = regmap_update_bits(mci->regmap, MT6360_PMU_CHG_CTRL2,
+						 MT6360_TE_EN_MASK, MT6360_TE_EN_MASK);
+		if (ret)
+			return dev_err_probe(mci->dev, ret,
+					     "Failed to set up termination\n");
+	}
+
+	return 0;
+}
+
 static int mt6360_charger_probe(struct platform_device *pdev)
 {
 	struct mt6360_chg_info *mci;
@@ -788,6 +847,8 @@ static int mt6360_charger_probe(struct platform_device *pdev)
 
 	mci->dev = &pdev->dev;
 	mci->vinovp = 6500000;
+	mci->ichg_max = MT6360_ICHG_MAX;
+	mci->cv_max = MT6360_VOREG_MAX;
 	mutex_init(&mci->chgdet_lock);
 	platform_set_drvdata(pdev, mci);
 	ret = devm_work_autocancel(&pdev->dev, &mci->chrdet_work, mt6360_chrdet_work);
@@ -816,6 +877,9 @@ static int mt6360_charger_probe(struct platform_device *pdev)
 		return dev_err_probe(&pdev->dev, PTR_ERR(mci->psy),
 				     "Failed to register power supply dev\n");
 
+	ret = mt6360_chg_apply_battery_info(mci);
+	if (ret)
+		return ret;
 
 	ret = mt6360_chg_irq_register(pdev);
 	if (ret)
