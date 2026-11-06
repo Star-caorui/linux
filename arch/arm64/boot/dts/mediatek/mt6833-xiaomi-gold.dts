@@ -6,6 +6,7 @@
 /dts-v1/;
 #include <dt-bindings/input/input.h>
 #include <dt-bindings/interrupt-controller/irq.h>
+#include <dt-bindings/pinctrl/mt6833-pinfunc.h>
 #include <dt-bindings/spmi/spmi.h>
 #include "mt6833.dtsi"
 
@@ -209,6 +210,27 @@
 		dramc-rk1@1bffff000 {
 			reg = <0x1 0xbffff000 0 0x1000>;
 			no-map;
+		};
+	};
+};
+
+&keypad {
+	pinctrl-names = "default";
+	pinctrl-0 = <&keypad_pins>;
+	/* the scan the bootloader leaves set up: three rows, three columns */
+	keypad,num-rows = <3>;
+	keypad,num-columns = <3>;
+	debounce-delay-ms = <32>;
+	linux,keymap = <MATRIX_KEY(0, 0, KEY_VOLUMEDOWN)>;
+	status = "okay";
+};
+
+&pio {
+	keypad_pins: keypad-pins {
+		pins-col0 {
+			pinmux = <PINMUX_GPIO79__FUNC_KPCOL0>;
+			bias-pull-up = <MTK_PUPD_SET_R1R0_10>;
+			input-schmitt-enable;
 		};
 	};
 };
