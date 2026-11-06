@@ -444,6 +444,13 @@ config COMMON_CLK_MT6833_VDECSYS
 	help
 	  This driver supports MediaTek MT6833 vdecsys clocks.
 
+config COMMON_CLK_MT6833_VENCSYS
+	tristate "Clock driver for MediaTek MT6833 vencsys"
+	depends on COMMON_CLK_MT6833
+	default COMMON_CLK_MT6833
+	help
+	  This driver supports MediaTek MT6833 vencsys clocks.
+
 config COMMON_CLK_MT7622
 	tristate "Clock driver for MediaTek MT7622"
 	depends on ARCH_MEDIATEK || COMPILE_TEST
