@@ -482,12 +482,29 @@
 &spmi {
 	status = "okay";
 
-	/* Its buck 1 (with buck 2) and buck 4 feed the modem; LK turns buck 3 off. */
 	mt6315_3: pmic@3 {
 		compatible = "mediatek,mt6315-regulator";
 		reg = <0x3 SPMI_USID>;
 
+		/*
+		 * As gold's stock device tree constrains them, without its ramp settings and modes.
+		 * Buck 3, which LK turns off and nothing uses, is left out so that Linux does not
+		 * touch it.
+		 */
 		regulators {
+			mt6315_3_vbuck1: vbuck1 {
+				regulator-name = "3_vbuck1";
+				regulator-min-microvolt = <300000>;
+				regulator-max-microvolt = <1193750>;
+				regulator-always-on;
+			};
+
+			mt6315_3_vbuck4: vbuck4 {
+				regulator-name = "3_vbuck4";
+				regulator-min-microvolt = <300000>;
+				regulator-max-microvolt = <1193750>;
+				regulator-always-on;
+			};
 		};
 	};
 };
