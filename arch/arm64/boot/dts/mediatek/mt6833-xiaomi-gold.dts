@@ -322,6 +322,14 @@
 	};
 };
 
+/*
+ * Channels 0 to 3: NTC thermistors (100 kOhm, pulled up to 1.8 V through 100 kOhm), 0 the one
+ * the stock CPU zone reads, 2 also the one the modem is handed; 5: the board revision divider
+ */
+&auxadc {
+	status = "okay";
+};
+
 &i2c2 {
 	/* The main rear camera's sensor, EEPROM and focus motors */
 	clock-frequency = <1000000>;
