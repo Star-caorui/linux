@@ -16,7 +16,7 @@
 		#size-cells = <2>;
 		ranges;
 
-		bootargs = "console=tty0 loglevel=7 panic=10";
+		bootargs = "console=tty0 loglevel=7 panic=10 clk_ignore_unused";
 
 		/* The bootloader leaves the panel lit, scanning out this buffer */
 		framebuffer@73c10000 {
