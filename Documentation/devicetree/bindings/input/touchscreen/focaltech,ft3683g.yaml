@@ -1,0 +1,60 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/input/touchscreen/focaltech,ft3683g.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: FocalTech touchscreen controllers on SPI
+
+maintainers:
+  - Betterr <51264180+Star-caorui@users.noreply.github.com>
+
+allOf:
+  - $ref: touchscreen.yaml#
+  - $ref: /schemas/spi/spi-peripheral-props.yaml#
+
+properties:
+  compatible:
+    const: focaltech,ft3683g
+
+  reg:
+    maxItems: 1
+
+  interrupts:
+    maxItems: 1
+
+  reset-gpios:
+    maxItems: 1
+
+  avdd-supply:
+    description: Analog supply
+
+  iovdd-supply:
+    description: I/O supply
+
+required:
+  - compatible
+  - reg
+  - interrupts
+
+unevaluatedProperties: false
+
+examples:
+  - |
+    #include <dt-bindings/gpio/gpio.h>
+    #include <dt-bindings/interrupt-controller/irq.h>
+
+    spi {
+        #address-cells = <1>;
+        #size-cells = <0>;
+
+        touchscreen@1 {
+            compatible = "focaltech,ft3683g";
+            reg = <1>;
+            spi-max-frequency = <6000000>;
+            interrupts-extended = <&pio 14 IRQ_TYPE_EDGE_FALLING>;
+            reset-gpios = <&pio 15 GPIO_ACTIVE_LOW>;
+            touchscreen-size-x = <1080>;
+            touchscreen-size-y = <2400>;
+        };
+    };

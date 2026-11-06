@@ -370,6 +370,17 @@ config TOUCHSCREEN_EXC3000
 	  To compile this driver as a module, choose M here: the
 	  module will be called exc3000.
 
+config TOUCHSCREEN_FOCALTECH_SPI
+	tristate "FocalTech touchscreens on SPI"
+	depends on SPI
+	select CRC_CCITT
+	help
+	  Say Y here to support FocalTech touchscreen controllers that speak
+	  FocalTech's SPI protocol, such as the FT3683G.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called focaltech-spi.
+
 config TOUCHSCREEN_FUJITSU
 	tristate "Fujitsu serial touchscreen"
 	select SERIO
