@@ -1,0 +1,204 @@
+// SPDX-License-Identifier: (GPL-2.0-only OR MIT)
+/*
+ * Xiaomi Redmi Note 13 5G (gold)
+ */
+
+/dts-v1/;
+#include "mt6833.dtsi"
+
+/ {
+	model = "Xiaomi Redmi Note 13 5G";
+	compatible = "xiaomi,gold", "mediatek,mt6833";
+	chassis-type = "handset";
+
+	chosen {
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+
+		bootargs = "console=tty0 loglevel=7 panic=10";
+
+		/* The bootloader leaves the panel lit, scanning out this buffer */
+		framebuffer@73c10000 {
+			compatible = "simple-framebuffer";
+			reg = <0 0x73c10000 0 (4352 * 2400)>;
+			width = <1080>;
+			height = <2400>;
+			stride = <4352>;
+			format = "a8r8g8b8";
+		};
+	};
+
+	memory@40000000 {
+		device_type = "memory";
+		reg = <0 0x40000000 0x1 0x80000000>;
+	};
+
+	/*
+	 * The regions the bootloader reserves for the firmware it starts (ATF, TEE, GenieZone, the
+	 * SSPM, MCUPM and SCP coprocessors, the modem) and for itself, as it reports them.
+	 */
+	reserved-memory {
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+
+		aee-debug-kinfo@48080000 {
+			reg = <0x0 0x48080000 0 0x10000>;
+			no-map;
+		};
+
+		ramoops@48090000 {
+			compatible = "ramoops";
+			reg = <0x0 0x48090000 0 0xe0000>;
+			console-size = <0x40000>;
+			pmsg-size = <0x80000>;
+			no-map;
+		};
+
+		minirdump@48170000 {
+			reg = <0x0 0x48170000 0 0x10000>;
+			no-map;
+		};
+
+		atf-reserved@48c00000 {
+			reg = <0x0 0x48c00000 0 0x200000>;
+			no-map;
+		};
+
+		spm-reserved@72c00000 {
+			reg = <0x0 0x72c00000 0 0x10000>;
+			no-map;
+		};
+
+		framebuffer@73c10000 {
+			reg = <0x0 0x73c10000 0 0x1df0000>;
+			no-map;
+		};
+
+		tee-shm@75a00000 {
+			reg = <0x0 0x75a00000 0 0x400000>;
+			no-map;
+		};
+
+		tee-reserved@75e00000 {
+			reg = <0x0 0x75e00000 0 0x8a00000>;
+			no-map;
+		};
+
+		tee-secmem@7e800000 {
+			reg = <0x0 0x7e800000 0 0x400000>;
+			no-map;
+		};
+
+		gz-log@7ec00000 {
+			reg = <0x0 0x7ec00000 0 0x41000>;
+			no-map;
+		};
+
+		mcupm-reserved@7ed00000 {
+			reg = <0x0 0x7ed00000 0 0x100000>;
+			no-map;
+		};
+
+		gz@7ee00000 {
+			reg = <0x0 0x7ee00000 0 0x1000000>;
+			no-map;
+		};
+
+		sspm-reserved@7feb0000 {
+			reg = <0x0 0x7feb0000 0 0x100000>;
+			no-map;
+		};
+
+		log-store@7ffb0000 {
+			reg = <0x0 0x7ffb0000 0 0x40000>;
+			no-map;
+		};
+
+		emi-mbist-buf@7ffff000 {
+			reg = <0x0 0x7ffff000 0 0x1000>;
+			no-map;
+		};
+
+		ap-md-c-smem@86000000 {
+			reg = <0x0 0x86000000 0 0x2960000>;
+			no-map;
+		};
+
+		ap-md-nc-smem@8a000000 {
+			reg = <0x0 0x8a000000 0 0x1b0000>;
+			no-map;
+		};
+
+		md-mem-usage@8c000000 {
+			reg = <0x0 0x8c000000 0 0x20c0000>;
+			no-map;
+		};
+
+		drdi-memory@8e0c0000 {
+			reg = <0x0 0x8e0c0000 0 0x270000>;
+			no-map;
+		};
+
+		md-mem-usage@8e330000 {
+			reg = <0x0 0x8e330000 0 0x10000>;
+			no-map;
+		};
+
+		md-mem-usage@8f000000 {
+			reg = <0x0 0x8f000000 0 0xf0000>;
+			no-map;
+		};
+
+		md-mem-usage@90000000 {
+			reg = <0x0 0x90000000 0 0x7210000>;
+			no-map;
+		};
+
+		md-mem-usage@a7bd0000 {
+			reg = <0x0 0xa7bd0000 0 0x1730000>;
+			no-map;
+		};
+
+		scp-reserved@b9500000 {
+			reg = <0x0 0xb9500000 0 0x400000>;
+			no-map;
+		};
+
+		picachu@bfd00000 {
+			reg = <0x0 0xbfd00000 0 0x80000>;
+			no-map;
+		};
+
+		atf-log-reserved@bfe00000 {
+			reg = <0x0 0xbfe00000 0 0x40000>;
+			no-map;
+		};
+
+		ccci-tag-mem@bff60000 {
+			reg = <0x0 0xbff60000 0 0x10000>;
+			no-map;
+		};
+
+		atf-ramdump-reserved@bff70000 {
+			reg = <0x0 0xbff70000 0 0x80000>;
+			no-map;
+		};
+
+		dramc-rk0@bffff000 {
+			reg = <0x0 0xbffff000 0 0x1000>;
+			no-map;
+		};
+
+		dpm-reserved@ffe60000 {
+			reg = <0x0 0xffe60000 0 0x190000>;
+			no-map;
+		};
+
+		dramc-rk1@1bffff000 {
+			reg = <0x1 0xbffff000 0 0x1000>;
+			no-map;
+		};
+	};
+};
