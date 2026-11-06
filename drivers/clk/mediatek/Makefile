@@ -60,6 +60,7 @@ obj-$(CONFIG_COMMON_CLK_MT6833_IPESYS) += clk-mt6833-ipe.o
 obj-$(CONFIG_COMMON_CLK_MT6833_MDPSYS) += clk-mt6833-mdp.o
 obj-$(CONFIG_COMMON_CLK_MT6833_MFGCFG) += clk-mt6833-mfgcfg.o
 obj-$(CONFIG_COMMON_CLK_MT6833_MMSYS) += clk-mt6833-mm.o
+obj-$(CONFIG_COMMON_CLK_MT6833_VDECSYS) += clk-mt6833-vdec.o
 obj-$(CONFIG_COMMON_CLK_MT7622) += clk-mt7622-apmixedsys.o clk-mt7622.o \
 				   clk-mt7622-infracfg.o
 obj-$(CONFIG_COMMON_CLK_MT7622_ETHSYS) += clk-mt7622-eth.o
