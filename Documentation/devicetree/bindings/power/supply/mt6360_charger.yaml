@@ -13,6 +13,9 @@ description: |
   This module is part of the MT6360 MFD device.
   Provides Battery Charger, Boost for OTG devices and BC1.2 detection.
 
+allOf:
+  - $ref: power-supply.yaml#
+
 properties:
   compatible:
     const: mediatek,mt6360-chg
@@ -20,6 +23,12 @@ properties:
   richtek,vinovp-microvolt:
     description: Maximum CHGIN regulation voltage in uV.
     enum: [ 5500000, 6500000, 11000000, 14500000 ]
+
+  monitored-battery:
+    description:
+      The battery being charged. Its constant charge current and voltage, which
+      also become the most that may be set, and its precharge and termination
+      currents are applied.
 
   usb-otg-vbus-regulator:
     type: object
