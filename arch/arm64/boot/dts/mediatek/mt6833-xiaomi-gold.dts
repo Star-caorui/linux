@@ -806,7 +806,8 @@
 		reset-gpios = <&pio 15 GPIO_ACTIVE_LOW>;
 		avdd-supply = <&mt6360_ldo2_reg>;
 		iovdd-supply = <&touch_iovdd>;
-		touchscreen-size-x = <1080>;
-		touchscreen-size-y = <2400>;
+		/* in sixteenths of a pixel */
+		touchscreen-size-x = <17280>;
+		touchscreen-size-y = <38400>;
 	};
 };

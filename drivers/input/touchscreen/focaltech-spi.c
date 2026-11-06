@@ -6,8 +6,10 @@
  * starts with the register, a read (0xa0: 0x80 with CRC) or write (0x00) command and the 16-bit
  * length, then three dummy bytes. Status comes back in the fourth byte (0xa0 set: error); read data
  * follows the dummy bytes with a CRC-16 (CCITT, reflected, from 0xffff, low byte first). Touches are
- * read from register 0x01: an event type and finger count byte after one byte, then six bytes for
- * each of up to ten points, with 12-bit coordinates in the panel's pixels.
+ * read from register 0x01: after one byte, an event type and count byte. Type 0 is followed by six
+ * bytes for each of up to ten points, with 12-bit coordinates in the panel's pixels; type 2 (the
+ * FT3683G's) by two more bytes, then eight bytes for each point that changed, with 16-bit
+ * coordinates in sixteenths of a pixel. Coordinates are reported in sixteenths of a pixel.
  */
 
 #include <linux/crc-ccitt.h>
@@ -37,7 +39,11 @@
 
 #define FTSPI_MAX_POINTS	10
 #define FTSPI_POINT_LEN		6
-#define FTSPI_TOUCH_LEN		(2 + FTSPI_MAX_POINTS * FTSPI_POINT_LEN)
+#define FTSPI_POINT_LEN_V2	8
+#define FTSPI_TOUCH_LEN		(4 + FTSPI_MAX_POINTS * FTSPI_POINT_LEN_V2)
+
+#define FTSPI_TYPE_V1		0
+#define FTSPI_TYPE_V2		2
 #define FTSPI_BUF_LEN		(FTSPI_HEADER_LEN + FTSPI_DUMMY_LEN + FTSPI_TOUCH_LEN + FTSPI_CRC_LEN)
 
 #define FTSPI_EVENT_UP		1
@@ -102,39 +108,67 @@ static int ftspi_read(struct ftspi *ts, u8 reg, u8 *data, size_t len)
 	return ret;
 }
 
+static void ftspi_report(struct ftspi *ts, unsigned int id, bool down, unsigned int x,
+			 unsigned int y, unsigned int major, unsigned int minor)
+{
+	input_mt_slot(ts->input, id);
+	input_mt_report_slot_state(ts->input, MT_TOOL_FINGER, down);
+	if (!down)
+		return;
+
+	touchscreen_report_pos(ts->input, &ts->prop, x, y, true);
+	input_report_abs(ts->input, ABS_MT_TOUCH_MAJOR, major ?: 0x09);
+	input_report_abs(ts->input, ABS_MT_TOUCH_MINOR, minor ?: 0x09);
+}
+
 static irqreturn_t ftspi_irq(int irq, void *data)
 {
 	struct ftspi *ts = data;
 	u8 buf[FTSPI_TOUCH_LEN];
+	unsigned int type, count;
 	int i;
 
 	if (ftspi_read(ts, FTSPI_REG_TOUCH, buf, sizeof(buf)))
 		return IRQ_HANDLED;
 
-	/* 0xff: the firmware is (re)starting; other event types are gestures and pens */
-	if (buf[1] == 0xff || buf[1] >> 4)
+	/* all ones: the firmware is (re)starting */
+	if (buf[1] == 0xff && buf[2] == 0xff && buf[3] == 0xff && buf[4] == 0xff)
 		return IRQ_HANDLED;
 
-	for (i = 0; i < FTSPI_MAX_POINTS; i++) {
-		const u8 *p = buf + 2 + i * FTSPI_POINT_LEN;
-		unsigned int id = p[2] >> 4;
-		bool down = (p[0] >> 6) != FTSPI_EVENT_UP;
+	type = buf[1] >> 4;
+	count = buf[1] & 0x0f;
+	if (count > FTSPI_MAX_POINTS)
+		return IRQ_HANDLED;
 
-		if (id == FTSPI_ID_NONE)
-			break;
-		if (id >= FTSPI_MAX_POINTS)
-			continue;
+	switch (type) {
+	case FTSPI_TYPE_V1:
+		for (i = 0; i < FTSPI_MAX_POINTS; i++) {
+			const u8 *p = buf + 2 + i * FTSPI_POINT_LEN;
+			unsigned int id = p[2] >> 4;
 
-		input_mt_slot(ts->input, id);
-		input_mt_report_slot_state(ts->input, MT_TOOL_FINGER, down);
-		if (!down)
-			continue;
+			if (id >= FTSPI_MAX_POINTS)
+				break;
+			ftspi_report(ts, id, (p[0] >> 6) != FTSPI_EVENT_UP,
+				     ((p[0] & 0x0f) << 8 | p[1]) * 16,
+				     ((p[2] & 0x0f) << 8 | p[3]) * 16, p[5], p[5]);
+		}
+		break;
+	case FTSPI_TYPE_V2:
+		for (i = 0; i < count; i++) {
+			const u8 *p = buf + 4 + i * FTSPI_POINT_LEN_V2;
+			unsigned int id = p[2] >> 4;
 
-		touchscreen_report_pos(ts->input, &ts->prop,
-				       (p[0] & 0x0f) << 8 | p[1],
-				       (p[2] & 0x0f) << 8 | p[3], true);
-		input_report_abs(ts->input, ABS_MT_PRESSURE, p[4] ?: 0x3f);
-		input_report_abs(ts->input, ABS_MT_TOUCH_MAJOR, p[5] ?: 0x09);
+			if (id >= FTSPI_MAX_POINTS)
+				continue;
+			ftspi_report(ts, id, (p[0] >> 6) != FTSPI_EVENT_UP,
+				     (p[0] & 0x0f) << 12 | p[1] << 4 | p[4] >> 4,
+				     (p[2] & 0x0f) << 12 | p[3] << 4 | (p[4] & 0x0f), p[5], p[6]);
+		}
+		break;
+	default:
+		/* gestures, pens and other messages */
+		dev_dbg(&ts->spi->dev, "event type %u\n", type);
+		return IRQ_HANDLED;
 	}
 
 	input_mt_sync_frame(ts->input);
@@ -191,14 +225,14 @@ static int ftspi_probe(struct spi_device *spi)
 	ts->input->name = "FocalTech touchscreen";
 	ts->input->id.bustype = BUS_SPI;
 
-	input_set_abs_params(ts->input, ABS_MT_POSITION_X, 0, 4095, 0, 0);
-	input_set_abs_params(ts->input, ABS_MT_POSITION_Y, 0, 4095, 0, 0);
-	input_set_abs_params(ts->input, ABS_MT_PRESSURE, 0, 255, 0, 0);
+	input_set_abs_params(ts->input, ABS_MT_POSITION_X, 0, 65535, 0, 0);
+	input_set_abs_params(ts->input, ABS_MT_POSITION_Y, 0, 65535, 0, 0);
 	input_set_abs_params(ts->input, ABS_MT_TOUCH_MAJOR, 0, 255, 0, 0);
+	input_set_abs_params(ts->input, ABS_MT_TOUCH_MINOR, 0, 255, 0, 0);
 	touchscreen_parse_properties(ts->input, true, &ts->prop);
 
 	ret = input_mt_init_slots(ts->input, FTSPI_MAX_POINTS,
-				  INPUT_MT_DIRECT | INPUT_MT_DROP_UNUSED);
+				  INPUT_MT_DIRECT);
 	if (ret)
 		return ret;
 
