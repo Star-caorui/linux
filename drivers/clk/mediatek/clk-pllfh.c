@@ -64,7 +64,7 @@ void fhctl_parse_dt(const u8 *compatible_node, struct mtk_pllfh_data *pllfhs,
 {
 	void __iomem *base;
 	struct device_node *node;
-	u32 num_clocks, pll_id, ssc_rate;
+	u32 num_clocks, pll_id;
 	int offset, i;
 
 	node = of_find_compatible_node(NULL, NULL, compatible_node);
@@ -87,6 +87,7 @@ void fhctl_parse_dt(const u8 *compatible_node, struct mtk_pllfh_data *pllfhs,
 
 	for (i = 0; i < num_clocks; i++) {
 		struct mtk_pllfh_data *pllfh;
+		u32 ssc_rate = 0;
 
 		offset = i * 2;
 
