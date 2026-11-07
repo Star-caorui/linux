@@ -494,6 +494,12 @@
 			#clock-cells = <1>;
 		};
 
+		fhctl: clock-controller@1000ce00 {
+			compatible = "mediatek,mt6833-fhctl";
+			reg = <0 0x1000ce00 0 0x200>;
+			clocks = <&apmixedsys CLK_APMIXED_MFGPLL>;
+		};
+
 		keypad: keypad@10010000 {
 			compatible = "mediatek,mt6833-keypad", "mediatek,mt6779-keypad";
 			reg = <0 0x10010000 0 0x1000>;
