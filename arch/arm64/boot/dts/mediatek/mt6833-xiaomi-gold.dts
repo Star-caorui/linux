@@ -1,0 +1,57 @@
+// SPDX-License-Identifier: (GPL-2.0-only OR MIT)
+/*
+ * Xiaomi Redmi Note 13 5G (gold)
+ *
+ * Copyright (C) 2026 Rui Cao <i@udp0.com>
+ */
+
+/dts-v1/;
+#include "mt6833.dtsi"
+
+/ {
+	model = "Xiaomi Redmi Note 13 5G";
+	compatible = "xiaomi,gold", "mediatek,mt6833";
+	chassis-type = "handset";
+
+	chosen {
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+
+		/* The bootloader leaves the panel lit, scanning out this buffer */
+		framebuffer@73c10000 {
+			compatible = "simple-framebuffer";
+			reg = <0 0x73c10000 0 (4352 * 2400)>;
+			width = <1080>;
+			height = <2400>;
+			stride = <4352>;
+			format = "a8r8g8b8";
+		};
+	};
+
+	memory@40000000 {
+		device_type = "memory";
+		/* The bootloader fills in the size */
+		reg = <0 0x40000000 0 0>;
+	};
+
+	/* The bootloader adds the regions it reserves for firmware */
+	reserved-memory {
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+
+		ramoops@48090000 {
+			compatible = "ramoops";
+			reg = <0 0x48090000 0 0xe0000>;
+			console-size = <0x40000>;
+			pmsg-size = <0x80000>;
+			no-map;
+		};
+
+		framebuffer@73c10000 {
+			reg = <0 0x73c10000 0 0x1df0000>;
+			no-map;
+		};
+	};
+};
