@@ -358,6 +358,7 @@
 							 <&topckgen CLK_TOP_MFG_REF_SEL>;
 						clock-names = "mfg", "alt";
 						mediatek,infracfg = <&infracfg_ao>;
+						mediatek,infracfg-nao = <&infra_bcrm>;
 						#address-cells = <1>;
 						#size-cells = <0>;
 						#power-domain-cells = <1>;
@@ -587,6 +588,11 @@
 			clock-names = "main";
 			#io-channel-cells = <1>;
 			status = "disabled";
+		};
+
+		infra_bcrm: syscon@10215000 {
+			compatible = "mediatek,mt6833-infra-bcrm", "syscon";
+			reg = <0 0x10215000 0 0x1000>;
 		};
 
 		uart0: serial@11002000 {
