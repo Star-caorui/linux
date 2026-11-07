@@ -377,6 +377,7 @@ config COMMON_CLK_MT6833
 	tristate "Clock driver for MediaTek MT6833"
 	depends on ARM64 || COMPILE_TEST
 	select COMMON_CLK_MEDIATEK
+	select COMMON_CLK_MEDIATEK_FHCTL
 	default ARM64 && ARCH_MEDIATEK
 	help
 	  This driver supports MediaTek MT6833 basic clocks.
