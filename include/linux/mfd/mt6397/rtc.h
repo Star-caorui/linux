@@ -64,8 +64,11 @@
 #define RTC_AL_MTH_MASK        0x000f
 #define RTC_AL_YEA_MASK        0x007f
 
+#define RTC_PDN1               0x002c
 #define RTC_PDN2               0x002e
 #define RTC_PDN2_PWRON_ALARM   BIT(4)
+#define RTC_SPAR0              0x0030
+#define RTC_SPAR1              0x0032
 
 #define MTK_RTC_POLL_DELAY_US  10
 #define MTK_RTC_POLL_TIMEOUT   (jiffies_to_usecs(HZ))

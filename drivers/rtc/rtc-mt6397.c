@@ -6,6 +6,7 @@
 
 #include <linux/array_size.h>
 #include <linux/bitfield.h>
+#include <linux/bitops.h>
 #include <linux/err.h>
 #include <linux/interrupt.h>
 #include <linux/mfd/mt6397/core.h>
@@ -246,11 +247,28 @@ static const struct rtc_class_ops mtk_rtc_ops = {
 };
 
 /*
- * The spare byte of each of these registers, in the order a board addresses
- * them as RTC_NEW_SPARE0 to RTC_NEW_SPARE3.
+ * The nvmem bytes: the spare byte of four alarm registers, in the order a
+ * board addresses them as RTC_NEW_SPARE0 to RTC_NEW_SPARE3, then the two
+ * bytes of each of PDN1, PDN2, SPAR0 and SPAR1, low byte first. MediaTek's
+ * bootloaders take boot requests from the latter: gold's LK enters fastboot
+ * when PDN1 bit 13 is set, and clears it.
  */
-static const u32 mtk_rtc_spare_reg[] = {
-	RTC_AL_HOU, RTC_AL_DOM, RTC_AL_DOW, RTC_AL_MTH,
+static const struct {
+	u32 reg;
+	u32 mask;
+} mtk_rtc_spare_reg[] = {
+	{ RTC_AL_HOU, RTC_SPARE_MASK },
+	{ RTC_AL_DOM, RTC_SPARE_MASK },
+	{ RTC_AL_DOW, RTC_SPARE_MASK },
+	{ RTC_AL_MTH, RTC_SPARE_MASK },
+	{ RTC_PDN1, GENMASK(7, 0) },
+	{ RTC_PDN1, GENMASK(15, 8) },
+	{ RTC_PDN2, GENMASK(7, 0) },
+	{ RTC_PDN2, GENMASK(15, 8) },
+	{ RTC_SPAR0, GENMASK(7, 0) },
+	{ RTC_SPAR0, GENMASK(15, 8) },
+	{ RTC_SPAR1, GENMASK(7, 0) },
+	{ RTC_SPAR1, GENMASK(15, 8) },
 };
 
 static int mtk_rtc_nvram_read(void *priv, unsigned int offset, void *val,
@@ -268,13 +286,15 @@ static int mtk_rtc_nvram_read(void *priv, unsigned int offset, void *val,
 	mutex_lock(&rtc->lock);
 
 	while (bytes--) {
+		u32 mask = mtk_rtc_spare_reg[offset].mask;
+
 		ret = regmap_read(rtc->regmap,
-				  rtc->addr_base + mtk_rtc_spare_reg[offset++],
+				  rtc->addr_base + mtk_rtc_spare_reg[offset++].reg,
 				  &data);
 		if (ret)
 			break;
 
-		*buf++ = FIELD_GET(RTC_SPARE_MASK, data);
+		*buf++ = (data & mask) >> __ffs(mask);
 	}
 
 	mutex_unlock(&rtc->lock);
@@ -296,10 +316,11 @@ static int mtk_rtc_nvram_write(void *priv, unsigned int offset, void *val,
 	mutex_lock(&rtc->lock);
 
 	while (bytes--) {
+		u32 mask = mtk_rtc_spare_reg[offset].mask;
+
 		ret = regmap_update_bits(rtc->regmap,
-					 rtc->addr_base + mtk_rtc_spare_reg[offset++],
-					 RTC_SPARE_MASK,
-					 FIELD_PREP(RTC_SPARE_MASK, *buf++));
+					 rtc->addr_base + mtk_rtc_spare_reg[offset++].reg,
+					 mask, (u32)*buf++ << __ffs(mask));
 		if (ret)
 			goto out;
 	}

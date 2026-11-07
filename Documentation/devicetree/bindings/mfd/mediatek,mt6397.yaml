@@ -91,7 +91,9 @@ properties:
           alarm uses, in the high half of four of the alarm registers, and
           offers them as a battery-backed nvmem provider. MediaTek's
           documentation names them RTC_NEW_SPARE0 to RTC_NEW_SPARE3 and gives
-          the first to a fuel gauge.
+          the first to a fuel gauge. Bytes 4 to 11 follow with PDN1, PDN2, SPAR0
+          and SPAR1, low byte first, from which MediaTek's bootloaders take
+          boot requests.
 
       mediatek,year-base:
         description:
