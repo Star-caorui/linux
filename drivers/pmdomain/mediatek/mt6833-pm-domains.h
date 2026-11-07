@@ -17,6 +17,16 @@
  * MT6833 even where they match MT8192's, so that each can be checked against
  * MediaTek's table.
  */
+/*
+ * MFG1's way to memory, in INFRA_BCRM (which the driver reaches as its
+ * INFRA_NAO block): MediaTek's gpufreq closes it before the bus protection
+ * on power-off and opens it on power-on, waiting for it to read back open.
+ * Its wait on closing looks only at bit 12, which it keeps set and which is
+ * left alone here.
+ */
+#define MT6833_INFRA_BCRM_MFG1_WAY_EN			0x04c
+#define MT6833_INFRA_BCRM_MFG1_WAY_EN_MASK		BIT(11)
+
 #define MT6833_TOP_AXI_PROT_EN_CONN			(BIT(13) | BIT(18))
 #define MT6833_TOP_AXI_PROT_EN_CONN_2ND			BIT(14)
 #define MT6833_TOP_AXI_PROT_EN_1_CONN			BIT(10)
@@ -94,6 +104,14 @@ static const struct scpsys_domain_data scpsys_domain_data_mt6833[] = {
 		.sram_pdn_bits = BIT(8),
 		.sram_pdn_ack_bits = BIT(12),
 		.bp_cfg = {
+			_BUS_PROT_STA(INFRA_NAO, INFRA_NAO,
+				      MT6833_INFRA_BCRM_MFG1_WAY_EN_MASK,
+				      MT6833_INFRA_BCRM_MFG1_WAY_EN,
+				      MT6833_INFRA_BCRM_MFG1_WAY_EN,
+				      MT6833_INFRA_BCRM_MFG1_WAY_EN_MASK,
+				      MT6833_INFRA_BCRM_MFG1_WAY_EN,
+				      BUS_PROT_INVERTED | BUS_PROT_REG_UPDATE |
+				      BUS_PROT_IGNORE_CLR_ACK),
 			BUS_PROT_WR_IGN(INFRA,
 					MT6833_TOP_AXI_PROT_EN_1_MFG1,
 					MT8192_TOP_AXI_PROT_EN_1_SET,
