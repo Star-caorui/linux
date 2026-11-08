@@ -5,6 +5,7 @@
  * Author: ChiYuan Huang <cy_huang@richtek.com>
  */
 
+#include <linux/bitfield.h>
 #include <linux/interrupt.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -160,10 +161,36 @@ static int mt6360_tcpc_set_vbus(struct tcpci *tcpci, struct tcpci_data *tdata, b
 	return 0;
 }
 
+/*
+ * Toggling as a dual-role port, the TCPC that finds a sink (Rd while it presents Rp) reports it but
+ * keeps toggling until ROLE_CONTROL changes, and TCPM writes nothing until tCCDebounce has passed:
+ * in the next Rd phase CC reads open and the port detaches. Hold Rp on both pins with DRP off once
+ * the TCPC has found a sink, as MediaTek's driver does on entering AttachWait.SRC.
+ */
+static void mt6360_tcpc_hold_source(struct mt6360_tcpc_info *mti)
+{
+	struct regmap *regmap = mti->tdata.regmap;
+	unsigned int role, cc;
+
+	if (regmap_read(regmap, TCPC_ROLE_CTRL, &role) || !(role & TCPC_ROLE_CTRL_DRP))
+		return;
+	if (regmap_read(regmap, TCPC_CC_STATUS, &cc) ||
+	    cc & (TCPC_CC_STATUS_TOGGLING | TCPC_CC_STATUS_TERM))
+		return;
+	if (tcpci_to_typec_cc(FIELD_GET(TCPC_CC_STATUS_CC1, cc), false) != TYPEC_CC_RD &&
+	    tcpci_to_typec_cc(FIELD_GET(TCPC_CC_STATUS_CC2, cc), false) != TYPEC_CC_RD)
+		return;
+
+	regmap_write(regmap, TCPC_ROLE_CTRL, (role & TCPC_ROLE_CTRL_RP_VAL) |
+		     FIELD_PREP(TCPC_ROLE_CTRL_CC1, TCPC_ROLE_CTRL_CC_RP) |
+		     FIELD_PREP(TCPC_ROLE_CTRL_CC2, TCPC_ROLE_CTRL_CC_RP));
+}
+
 static irqreturn_t mt6360_irq(int irq, void *dev_id)
 {
 	struct mt6360_tcpc_info *mti = dev_id;
 
+	mt6360_tcpc_hold_source(mti);
 	return tcpci_irq(mti->tcpci);
 }
 
