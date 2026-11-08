@@ -131,18 +131,79 @@ static void mt7615_irq_tasklet(struct tasklet_struct *t)
 	wake_up(&dev->reset_wait);
 }
 
-static u32 __mt7615_reg_addr(struct mt7615_dev *dev, u32 addr)
-{
-	if (addr < 0x100000)
-		return addr;
+/*
+ * MT6833: the WMAC's 1 MiB window shows these chip address ranges at fixed offsets (MediaTek's
+ * soc2_1x1_bus2chip_cr_mapping; MT6833 is SOC2_1X1), and nothing else: there is no PCIe remap. Its 0x700c is
+ * CONN_HIF_ON_ADDR_REMAP1, which points the AP's connsys windows at 0x180a0000 and 0x180d0000
+ * elsewhere, and the PCIe remap's 0x90000 + 512 KiB runs past the end of the window.
+ */
+static const struct mt76_connac_reg_map mt6833_reg_map[] = {
+	{ 0x80000000, 0x02000, 0x01000 },	/* MCU_CFG */
+	{ 0x50000000, 0x04000, 0x04000 },	/* CONN_HIF (PDMA) */
+	{ 0x50002000, 0x05000, 0x01000 },	/* CONN_HIF (reserved) */
+	{ 0x5000a000, 0x06000, 0x01000 },	/* CONN_HIF (DMASHDL) */
+	{ 0x82060000, 0x08000, 0x04000 },	/* WF_UMAC_TOP (PLE) */
+	{ 0x82068000, 0x0c000, 0x02000 },	/* WF_UMAC_TOP (PSE) */
+	{ 0x8206c000, 0x0e000, 0x02000 },	/* WF_UMAC_TOP (PP) */
+	{ 0x82070000, 0x10000, 0x10000 },	/* WF_PHY */
+	{ 0x820f0000, 0x20000, 0x10000 },	/* WF_LMAC_TOP */
+	{ 0x820e0000, 0x30000, 0x10000 },	/* WF_LMAC_TOP (WTBL) */
+	{ 0x81000000, 0x50000, 0x10000 },	/* BTSYS_OFF */
+	{ 0x80070000, 0x60000, 0x10000 },	/* GPSSYS */
+	{ 0x40000000, 0x70000, 0x10000 },	/* WF_SYSRAM */
+	{ 0x00300000, 0x80000, 0x10000 },	/* MCU_SYSRAM */
+	{ 0x80010000, 0xa1000, 0x01000 },	/* CONN_MCU_DMA */
+	{ 0x80030000, 0xa2000, 0x01000 },	/* CONN_MCU_BTIF0 */
+	{ 0x81030000, 0xa3000, 0x01000 },	/* CONN_MCU_CFG_ON */
+	{ 0x80050000, 0xa4000, 0x01000 },	/* CONN_UART_PTA */
+	{ 0x81040000, 0xa5000, 0x01000 },	/* CONN_MCU_CIRQ */
+	{ 0x81050000, 0xa6000, 0x01000 },	/* CONN_MCU_GPT */
+	{ 0x81060000, 0xa7000, 0x01000 },	/* CONN_PTA */
+	{ 0x81080000, 0xa8000, 0x01000 },	/* CONN_MCU_WDT */
+	{ 0x81090000, 0xa9000, 0x01000 },	/* CONN_MCU_PDA */
+	{ 0x810a0000, 0xaa000, 0x01000 },	/* CONN_RDD_AHB_WRAP0 */
+	{ 0x810b0000, 0xab000, 0x01000 },	/* BTSYS_ON */
+	{ 0x810c0000, 0xac000, 0x01000 },	/* CONN_RBIST_TOP */
+	{ 0x810d0000, 0xad000, 0x01000 },	/* CONN_RDD_AHB_WRAP0 */
+	{ 0x820d0000, 0xae000, 0x01000 },	/* WFSYS_ON */
+	{ 0x60000000, 0xaf000, 0x01000 },	/* CONN_MCU_PDA */
+	{ 0x80020000, 0xb0000, 0x10000 },	/* CONN_TOP_MISC_OFF */
+	{ 0x81020000, 0xc0000, 0x10000 },	/* CONN_TOP_MISC_ON */
+};
 
-	return mt7615_reg_map(dev, addr);
+/* the offset of a register in the window: offsets below 1 MiB are taken as they are */
+static bool mt7615_reg_addr(struct mt7615_dev *dev, u32 addr, u32 *offset)
+{
+	int i;
+
+	if (addr < 0x100000) {
+		*offset = addr;
+		return true;
+	}
+
+	if (!is_mt6833(&dev->mt76)) {
+		*offset = mt7615_reg_map(dev, addr);
+		return true;
+	}
+
+	for (i = 0; i < ARRAY_SIZE(mt6833_reg_map); i++) {
+		if (addr - mt6833_reg_map[i].phys < mt6833_reg_map[i].size) {
+			*offset = mt6833_reg_map[i].maps + addr - mt6833_reg_map[i].phys;
+			return true;
+		}
+	}
+
+	dev_warn_ratelimited(dev->mt76.dev, "register 0x%08x is out of reach\n", addr);
+	return false;
 }
 
 static u32 mt7615_rr(struct mt76_dev *mdev, u32 offset)
 {
 	struct mt7615_dev *dev = container_of(mdev, struct mt7615_dev, mt76);
-	u32 addr = __mt7615_reg_addr(dev, offset);
+	u32 addr;
+
+	if (!mt7615_reg_addr(dev, offset, &addr))
+		return ~0;
 
 	return dev->bus_ops->rr(mdev, addr);
 }
@@ -150,7 +211,10 @@ static u32 mt7615_rr(struct mt76_dev *mdev, u32 offset)
 static void mt7615_wr(struct mt76_dev *mdev, u32 offset, u32 val)
 {
 	struct mt7615_dev *dev = container_of(mdev, struct mt7615_dev, mt76);
-	u32 addr = __mt7615_reg_addr(dev, offset);
+	u32 addr;
+
+	if (!mt7615_reg_addr(dev, offset, &addr))
+		return;
 
 	dev->bus_ops->wr(mdev, addr, val);
 }
@@ -158,7 +222,10 @@ static void mt7615_wr(struct mt76_dev *mdev, u32 offset, u32 val)
 static u32 mt7615_rmw(struct mt76_dev *mdev, u32 offset, u32 mask, u32 val)
 {
 	struct mt7615_dev *dev = container_of(mdev, struct mt7615_dev, mt76);
-	u32 addr = __mt7615_reg_addr(dev, offset);
+	u32 addr;
+
+	if (!mt7615_reg_addr(dev, offset, &addr))
+		return ~0;
 
 	return dev->bus_ops->rmw(mdev, addr, mask, val);
 }
