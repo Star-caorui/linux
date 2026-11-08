@@ -8,6 +8,7 @@
 #include <dt-bindings/iio/adc/mediatek,mt6359-auxadc.h>
 #include <dt-bindings/input/input.h>
 #include <dt-bindings/interrupt-controller/irq.h>
+#include <dt-bindings/leds/common.h>
 #include <dt-bindings/pinctrl/mt6833-pinfunc.h>
 #include <dt-bindings/regulator/mediatek,mt6360-regulator.h>
 #include <dt-bindings/spmi/spmi.h>
@@ -831,6 +832,37 @@
 				regulator-name = "usb-otg-vbus";
 				regulator-min-microvolt = <4425000>;
 				regulator-max-microvolt = <5825000>;
+			};
+		};
+
+		/*
+		 * The rear flash: both flash channels, with the stock kernel's limits (it may
+		 * drive them together). The indicator current sinks are left out: gold has no
+		 * indicator LED.
+		 */
+		led-controller {
+			compatible = "mediatek,mt6360-led";
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			led@4 {
+				reg = <4>;
+				function = LED_FUNCTION_FLASH;
+				color = <LED_COLOR_ID_WHITE>;
+				function-enumerator = <1>;
+				led-max-microamp = <400000>;
+				flash-max-microamp = <1500000>;
+				flash-max-timeout-us = <1248000>;
+			};
+
+			led@5 {
+				reg = <5>;
+				function = LED_FUNCTION_FLASH;
+				color = <LED_COLOR_ID_WHITE>;
+				function-enumerator = <2>;
+				led-max-microamp = <400000>;
+				flash-max-microamp = <1500000>;
+				flash-max-timeout-us = <1248000>;
 			};
 		};
 
