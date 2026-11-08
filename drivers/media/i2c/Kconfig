@@ -879,6 +879,16 @@ config VIDEO_S5KJN5
 	  To compile this driver as a module, choose M here: the
 	  module will be called s5kjn5.
 
+config VIDEO_SC202CS
+	tristate "SmartSens SC202CS sensor support"
+	select V4L2_CCI_I2C
+	help
+	  This is a Video4Linux2 sensor driver for the SmartSens SC202CS
+	  2 Mpixel monochrome camera sensor.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called sc202cs.
+
 config VIDEO_T4KA3
 	tristate "Toshiba T4KA3 sensor support"
 	depends on ACPI || COMPILE_TEST

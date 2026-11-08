@@ -25952,6 +25952,13 @@ F:	fs/smb/smbdirect/
 F:	fs/smb/server/transport_rdma.*
 F:	include/linux/smbdirect.h
 
+SMARTSENS SC202CS CAMERA SENSOR DRIVER
+M:	Rui Cao <i@udp0.com>
+L:	linux-media@vger.kernel.org
+S:	Maintained
+F:	Documentation/devicetree/bindings/media/i2c/smartsens,sc202cs.yaml
+F:	drivers/media/i2c/sc202cs.c
+
 SMC91x ETHERNET DRIVER
 M:	Nicolas Pitre <nico@fluxnic.net>
 S:	Odd Fixes
