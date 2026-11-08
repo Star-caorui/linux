@@ -305,6 +305,9 @@ struct mt7615_dev {
 	s8 rxd_dw4;
 	/* MT6833: the firmware takes the kernel's channel list and per-rate power limits */
 	bool single_sku;
+	/* MT6833 prototype: WMM parameters by mac80211 AC, for CE 0x1d */
+	struct ieee80211_tx_queue_params mt6833_wmm[IEEE80211_NUM_ACS];
+	u8 mt6833_wmm_valid;
 };
 
 enum tx_pkt_queue_idx {
@@ -435,6 +438,9 @@ void mt7615_mcu_rx_event(struct mt7615_dev *dev, struct sk_buff *skb);
 int mt7615_mcu_rdd_send_pattern(struct mt7615_dev *dev);
 int mt7615_mcu_fw_log_2_host(struct mt7615_dev *dev, u8 ctrl);
 int mt7615_mcu_set_channel_domain(struct mt7615_phy *phy);
+bool mt6833_dbg_skip(struct mt7615_dev *dev, unsigned int bit);
+int mt6833_mcu_set_wmm(struct mt7615_dev *dev, struct ieee80211_vif *vif, u16 queue,
+		       const struct ieee80211_tx_queue_params *params);
 int mt7615_mcu_set_rate_txpower(struct mt7615_phy *phy);
 
 static inline bool mt7615_firmware_offload(struct mt7615_dev *dev)

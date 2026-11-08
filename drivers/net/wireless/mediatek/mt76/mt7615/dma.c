@@ -198,6 +198,11 @@ static void mt7663_dma_sched_init(struct mt7615_dev *dev)
 	mt76_wr(dev, MT_DMA_SHDL(MT_DMASHDL_SCHED_SET1), 0xedcba987);
 }
 
+/* prototype, for the A/B test */
+static bool mt6833_apsrc = true;
+module_param(mt6833_apsrc, bool, 0644);
+MODULE_PARM_DESC(mt6833_apsrc, "MT6833 prototype: PDMA DRAM request and no clock gating");
+
 void mt7615_dma_start(struct mt7615_dev *dev)
 {
 	/* start dma engine */
@@ -213,7 +218,7 @@ void mt7615_dma_start(struct mt7615_dev *dev)
 	 * MT6833: on the SoC's bus the PDMA has to hold its DRAM request (APSRC) and keep its clock
 	 * running, or it never reaches memory (as MediaTek's asicPdmaConfig())
 	 */
-	if (is_mt6833(&dev->mt76)) {
+	if (is_mt6833(&dev->mt76) && mt6833_apsrc) {
 		mt76_set(dev, MT_WPDMA_APSRC_ACK_LOCK_SLPPROT, BIT(4));
 		mt76_set(dev, MT_WPDMA_GLO_CFG, MT_WPDMA_GLO_CFG_CLK_GATE_DIS);
 	}

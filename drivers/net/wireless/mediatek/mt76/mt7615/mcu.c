@@ -61,6 +61,59 @@ struct mt7663_fw_buf {
 
 #define IMG_CRC_LEN			4
 
+/* MT6833 prototype: the host side of the PDMA and the handshake registers, to the log */
+static void mt6833_dump_regs(struct mt7615_dev *dev, const char *when)
+{
+	static const struct {
+		const char *name;
+		u32 addr;
+	} r[] = {
+		{ "INT_STA", 0x4200 }, { "INT_MSK", 0x4204 }, { "GLO_CFG", 0x4208 },
+		{ "APSRC", 0x4160 }, { "MCU2HOST_STA", 0x41f0 }, { "MCU2HOST_EN", 0x41f4 },
+		{ "TX3_BASE", 0x4330 }, { "TX3_CNT", 0x4334 }, { "TX3_CIDX", 0x4338 },
+		{ "TX3_DIDX", 0x433c }, { "TX15_BASE", 0x43f0 }, { "TX15_CIDX", 0x43f8 },
+		{ "TX15_DIDX", 0x43fc }, { "RX0_BASE", 0x4400 }, { "RX0_CIDX", 0x4408 },
+		{ "RX0_DIDX", 0x440c }, { "RX1_BASE", 0x4410 }, { "RX1_CNT", 0x4414 },
+		{ "RX1_CIDX", 0x4418 }, { "RX1_DIDX", 0x441c }, { "LPCTL", 0x7000 },
+		{ "IRQ_ENA", 0x7008 }, { "HIF_ON_MISC", 0x713c }, { "CONN_ON_MISC", 0xc1140 },
+		{ "ON_HOST_DBG", 0xc1144 }, { "C2A_SLP", 0xbc010 }, { "MCU2A_SLP", 0xbc014 },
+		{ "C2A_GALS", 0xbc018 }, { "C2A_MUX", 0xbc01c }, { "HIF_BUSY", 0xbc020 },
+		{ "CSR", 0x7100 }, { "MCU_PC", 0x7104 }, { "RGU", 0x7108 },
+		{ "WFSYS_BUSY", 0x710c }, { "MCU_PWR", 0x7114 }, { "FW_OWN_SET", 0x7118 },
+		{ "MBOX0", 0x711c }, { "MBOX1", 0x7120 }, { "MBOX2", 0x7124 },
+		{ "MBOX3", 0x7128 }, { "MCU_PC", 0x7104 }, { "MCU_PC", 0x7104 },
+	};
+	char buf[512];
+	int i, n = 0;
+
+	for (i = 0; i < ARRAY_SIZE(r); i++) {
+		n += scnprintf(buf + n, sizeof(buf) - n, " %s=%08x", r[i].name,
+			       mt76_rr(dev, r[i].addr));
+		if (i % 6 == 5 || i == ARRAY_SIZE(r) - 1) {
+			dev_info(dev->mt76.dev, "regs %s:%s\n", when, buf);
+			n = 0;
+		}
+	}
+}
+
+/* MT6833 prototype: every MCU command and event to the log (not the firmware scatter) */
+static bool mt6833_trace = true;
+module_param(mt6833_trace, bool, 0644);
+MODULE_PARM_DESC(mt6833_trace, "MT6833 prototype: log MCU commands and events");
+
+static void mt6833_trace_tx(struct mt7615_dev *dev, struct sk_buff *skb, int cmd, int seq)
+{
+	int hdr = cmd & __MCU_CMD_FIELD_UNI ? sizeof(struct mt7615_uni_txd) :
+					      sizeof(struct mt7615_mcu_txd);
+	/* not the MAC addresses at offset 4 */
+	int n = cmd == MCU_CE_CMD(SET_NVRAM) || cmd == MCU_CE_CMD(BSS_ACTIVATE_CTRL) ? 4 : 16;
+
+	if (!is_mt6833(&dev->mt76) || !mt6833_trace || cmd == MCU_CMD(FW_SCATTER))
+		return;
+	dev_info(dev->mt76.dev, "mcu tx %08x seq %d len %d: %*ph\n", cmd, seq,
+		 skb->len - hdr, min_t(int, skb->len - hdr, n), skb->data + hdr);
+}
+
 void mt7615_mcu_fill_msg(struct mt7615_dev *dev, struct sk_buff *skb,
 			 int cmd, int *wait_seq)
 {
@@ -143,6 +196,9 @@ int mt7615_mcu_parse_response(struct mt76_dev *mdev, int cmd,
 	if (!skb) {
 		dev_err(mdev->dev, "Message %08x (seq %d) timeout\n",
 			cmd, seq);
+		if (is_mt6833(mdev))
+			mt6833_dump_regs(container_of(mdev, struct mt7615_dev, mt76),
+					 "timeout");
 		return -ETIMEDOUT;
 	}
 
@@ -203,6 +259,7 @@ mt7615_mcu_send_message(struct mt76_dev *mdev, struct sk_buff *skb,
 	enum mt76_mcuq_id qid;
 
 	mt7615_mcu_fill_msg(dev, skb, cmd, seq);
+	mt6833_trace_tx(dev, skb, cmd, seq ? *seq : -1);
 	if (test_bit(MT76_STATE_MCU_RUNNING, &dev->mphy.state))
 		qid = MT_MCUQ_WM;
 	else
@@ -1713,6 +1770,8 @@ static int mt7663_load_n9(struct mt7615_dev *dev, const char *name)
 						    mode);
 		if (ret) {
 			dev_err(dev->mt76.dev, "Download request failed\n");
+			if (is_mt6833(&dev->mt76))
+				mt6833_dump_regs(dev, "after");
 			goto out;
 		}
 
@@ -1860,6 +1919,7 @@ static int mt6833_load_firmware(struct mt7615_dev *dev)
 	dev->mcu_ops = &mt6833_update_ops;
 
 	mt76_set(dev, MT_WPDMA_GLO_CFG, MT_WPDMA_GLO_CFG_BYPASS_TX_SCH);
+	mt6833_dump_regs(dev, "before");
 
 	ret = mt7663_load_n9(dev, MT6833_FIRMWARE_N9);
 	if (ret)
@@ -2016,9 +2076,85 @@ static int mt6833_mcu_set_domain_info(struct mt7615_phy *phy)
 				 false);
 }
 
+/*
+ * prototype, for A/B tests: MT6833 commands to leave out or replace (bit mask)
+ * bit 0: EXT MAC_INIT_CTRL (0x46) at start and stop
+ * bit 1: EXT CHANNEL_SWITCH and SET_RX_PATH (0x08, 0x4e)
+ * bit 2: WMM through CMD_ID_UPDATE_WMM_PARMS (CE 0x1d, as gen4m) instead of EXT EDCA_UPDATE (0x27)
+ */
+static uint mt6833_skip;
+module_param(mt6833_skip, uint, 0644);
+MODULE_PARM_DESC(mt6833_skip, "MT6833 prototype: 1 no MAC_INIT_CTRL, 2 no channel commands, 4 WMM by CE 0x1d");
+
+bool mt6833_dbg_skip(struct mt7615_dev *dev, unsigned int bit)
+{
+	return is_mt6833(&dev->mt76) && (mt6833_skip & bit);
+}
+
+/* gen4m's CMD_UPDATE_WMM_PARMS: all four ACs at once, in its order BE, BK, VI, VO */
+int mt6833_mcu_set_wmm(struct mt7615_dev *dev, struct ieee80211_vif *vif, u16 queue,
+		       const struct ieee80211_tx_queue_params *params)
+{
+	static const u8 to_gen4m[IEEE80211_NUM_ACS] = {
+		[IEEE80211_AC_BE] = 0, [IEEE80211_AC_BK] = 1,
+		[IEEE80211_AC_VI] = 2, [IEEE80211_AC_VO] = 3,
+	};
+	struct mt7615_vif *mvif = (struct mt7615_vif *)vif->drv_priv;
+	struct {
+		struct {
+			__le16 cw_min;
+			__le16 cw_max;
+			__le16 txop;
+			__le16 aifsn;
+			u8 guard_time;
+			u8 acm;
+		} __packed ac[IEEE80211_NUM_ACS];
+		u8 bss_idx;
+		u8 qbss;
+		u8 wmm_set;
+		u8 rsv;
+	} __packed req = {
+		.bss_idx = mvif->mt76.idx,
+		.qbss = vif->bss_conf.qos,
+		.wmm_set = mvif->mt76.wmm_idx,
+	};
+	int i;
+
+	if (queue >= IEEE80211_NUM_ACS)
+		return -EINVAL;
+	dev->mt6833_wmm[queue] = *params;
+	dev->mt6833_wmm_valid |= BIT(queue);
+
+	for (i = 0; i < IEEE80211_NUM_ACS; i++) {
+		/* 802.11 defaults until mac80211 has set an AC */
+		static const struct ieee80211_tx_queue_params def[IEEE80211_NUM_ACS] = {
+			[IEEE80211_AC_VO] = { .aifs = 2, .cw_min = 3, .cw_max = 7, .txop = 47 },
+			[IEEE80211_AC_VI] = { .aifs = 2, .cw_min = 7, .cw_max = 15, .txop = 94 },
+			[IEEE80211_AC_BE] = { .aifs = 3, .cw_min = 15, .cw_max = 1023 },
+			[IEEE80211_AC_BK] = { .aifs = 7, .cw_min = 15, .cw_max = 1023 },
+		};
+		const struct ieee80211_tx_queue_params *p =
+			dev->mt6833_wmm_valid & BIT(i) ? &dev->mt6833_wmm[i] : &def[i];
+		u8 j = to_gen4m[i];
+
+		req.ac[j].cw_min = cpu_to_le16(p->cw_min);
+		req.ac[j].cw_max = cpu_to_le16(p->cw_max);
+		req.ac[j].txop = cpu_to_le16(p->txop);
+		req.ac[j].aifsn = cpu_to_le16(p->aifs);
+	}
+
+	return mt76_mcu_send_msg(&dev->mt76, MCU_CE_CMD(SET_EDCA_PARMS), &req, sizeof(req),
+				 false);
+}
+
+/* prototype, for the A/B test: mt76's channel list, without per-rate power limits */
+static bool mt6833_domain_v2;
+module_param(mt6833_domain_v2, bool, 0644);
+MODULE_PARM_DESC(mt6833_domain_v2, "MT6833 prototype: send CMD_SET_DOMAIN_INFO_V2, no power limits");
+
 int mt7615_mcu_set_channel_domain(struct mt7615_phy *phy)
 {
-	if (is_mt6833(&phy->dev->mt76) && !phy->dev->single_sku)
+	if (is_mt6833(&phy->dev->mt76) && !phy->dev->single_sku && !mt6833_domain_v2)
 		return mt6833_mcu_set_domain_info(phy);
 
 	return mt76_connac_mcu_set_channel_domain(phy->mt76);
@@ -2028,7 +2164,7 @@ EXPORT_SYMBOL_GPL(mt7615_mcu_set_channel_domain);
 int mt7615_mcu_set_rate_txpower(struct mt7615_phy *phy)
 {
 	/* without single SKU the firmware keeps the NVRAM's target powers */
-	if (is_mt6833(&phy->dev->mt76) && !phy->dev->single_sku)
+	if (is_mt6833(&phy->dev->mt76) && (!phy->dev->single_sku || mt6833_domain_v2))
 		return 0;
 
 	return mt76_connac_mcu_set_rate_txpower(phy->mt76);
@@ -2496,6 +2632,9 @@ int mt7615_mcu_set_chan_info(struct mt7615_phy *phy, int cmd)
 		.rx_streams_mask = phy->mt76->chainmask,
 		.center_chan2 = ieee80211_frequency_to_channel(freq2),
 	};
+
+	if (mt6833_dbg_skip(phy->dev, BIT(1)))
+		return 0;
 
 	if (cmd == MCU_EXT_CMD(SET_RX_PATH) ||
 	    phy->mt76->hw->conf.flags & IEEE80211_CONF_MONITOR)

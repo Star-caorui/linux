@@ -76,12 +76,19 @@ int mt6833_wmac_init(struct mt7615_dev *dev)
  * do not stick: take it before mt76 sets up the rings (mt76 only does in mt7615_mcu_init(), on
  * PCIe chips that come up owned by the host), as MediaTek's wlanAdapterStart() does first.
  */
+/* prototype, for the A/B test: leave driver own to mt7615_mcu_init() as on PCIe */
+static bool mt6833_early_own = true;
+module_param(mt6833_early_own, bool, 0644);
+MODULE_PARM_DESC(mt6833_early_own, "MT6833 prototype: take driver own before the PDMA setup");
+
 static int mt6833_drv_own(struct device *dev, void __iomem *base)
 {
 	u32 val = readl(base + MT6833_LPCTL);
 	int ret;
 
-	dev_dbg(dev, "LPCTL %08x at probe\n", val);
+	dev_info(dev, "LPCTL %08x at probe, early driver own %d\n", val, mt6833_early_own);
+	if (!mt6833_early_own)
+		return 0;
 	writel(MT_CFG_LPCR_HOST_DRV_OWN, base + MT6833_LPCTL);
 	ret = readl_poll_timeout(base + MT6833_LPCTL, val, !(val & MT_CFG_LPCR_HOST_FW_OWN),
 				 100, 100 * USEC_PER_MSEC);

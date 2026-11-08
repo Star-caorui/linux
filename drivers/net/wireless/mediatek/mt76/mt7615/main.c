@@ -24,6 +24,15 @@ static bool mt7615_dev_running(struct mt7615_dev *dev)
 	return phy && test_bit(MT76_STATE_RUNNING, &phy->mt76->state);
 }
 
+/* MT6833 prototype: MAC_INIT_CTRL can be left out (mt6833_skip bit 0) */
+static int mt7615_mac_enable(struct mt7615_dev *dev, int band, bool enable, bool hdr_trans)
+{
+	if (mt6833_dbg_skip(dev, BIT(0)))
+		return 0;
+
+	return mt76_connac_mcu_set_mac_enable(&dev->mt76, band, enable, hdr_trans);
+}
+
 static int mt7615_start(struct ieee80211_hw *hw)
 {
 	struct mt7615_dev *dev = mt7615_hw_dev(hw);
@@ -44,7 +53,7 @@ static int mt7615_start(struct ieee80211_hw *hw)
 		if (ret)
 			goto out;
 
-		ret = mt76_connac_mcu_set_mac_enable(&dev->mt76, 0, true, false);
+		ret = mt7615_mac_enable(dev, 0, true, false);
 		if (ret)
 			goto out;
 
@@ -56,7 +65,7 @@ static int mt7615_start(struct ieee80211_hw *hw)
 		if (ret)
 			goto out;
 
-		ret = mt76_connac_mcu_set_mac_enable(&dev->mt76, 1, true, false);
+		ret = mt7615_mac_enable(dev, 1, true, false);
 		if (ret)
 			goto out;
 
@@ -114,12 +123,12 @@ static void mt7615_stop(struct ieee80211_hw *hw, bool suspend)
 
 	if (phy != &dev->phy) {
 		mt7615_mcu_set_pm(dev, 1, 1);
-		mt76_connac_mcu_set_mac_enable(&dev->mt76, 1, false, false);
+		mt7615_mac_enable(dev, 1, false, false);
 	}
 
 	if (!mt7615_dev_running(dev)) {
 		mt7615_mcu_set_pm(dev, 0, 1);
-		mt76_connac_mcu_set_mac_enable(&dev->mt76, 0, false, false);
+		mt7615_mac_enable(dev, 0, false, false);
 	}
 
 	mt7615_mutex_release(dev);
@@ -469,6 +478,12 @@ mt7615_conf_tx(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 	int err;
 
 	mt7615_mutex_acquire(dev);
+
+	if (mt6833_dbg_skip(dev, BIT(2))) {
+		err = mt6833_mcu_set_wmm(dev, vif, queue, params);
+		mt7615_mutex_release(dev);
+		return err;
+	}
 
 	queue = mt7615_lmac_mapping(dev, queue);
 	queue += mvif->wmm_idx * MT7615_MAX_WMM_SETS;

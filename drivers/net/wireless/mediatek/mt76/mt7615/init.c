@@ -65,6 +65,13 @@ int mt7615_thermal_init(struct mt7615_dev *dev)
 }
 EXPORT_SYMBOL_GPL(mt7615_thermal_init);
 
+/* MT6833 prototype: where the bring-up is, between the MCU trace lines */
+#define mt6833_mark(dev, what)						\
+	do {								\
+		if (is_mt6833(&(dev)->mt76))				\
+			dev_info((dev)->mt76.dev, "init: %s\n", what);	\
+	} while (0)
+
 static void
 mt7615_phy_init(struct mt7615_dev *dev)
 {
@@ -318,11 +325,16 @@ EXPORT_SYMBOL_GPL(mt7615_init_txpower);
 
 void mt7615_init_work(struct mt7615_dev *dev)
 {
+	mt6833_mark(dev, "eeprom");
 	mt7615_mcu_set_eeprom(dev);
+	mt6833_mark(dev, "mac");
 	mt7615_mac_init(dev);
+	mt6833_mark(dev, "phy");
 	mt7615_phy_init(dev);
+	mt6833_mark(dev, "wtbl");
 	mt76_connac_mcu_del_wtbl_all(&dev->mt76);
 	mt7615_check_offload_capability(dev);
+	mt6833_mark(dev, "done");
 }
 EXPORT_SYMBOL_GPL(mt7615_init_work);
 
@@ -348,6 +360,7 @@ mt7615_regd_notifier(struct wiphy *wiphy,
 		mt7615_dfs_init_radar_detector(phy);
 
 	if (mt7615_firmware_offload(phy->dev)) {
+		mt6833_mark(dev, "regulatory");
 		mt7615_mcu_set_channel_domain(phy);
 		mt7615_mcu_set_rate_txpower(phy);
 	}

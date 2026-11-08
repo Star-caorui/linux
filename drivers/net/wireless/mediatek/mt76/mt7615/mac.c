@@ -1655,6 +1655,14 @@ static void mt6833_rx_fixup(struct mt7615_dev *dev, struct sk_buff *skb,
 		memmove(skb->data + 4, skb->data, 16);
 		skb_pull(skb, 4);
 	}
+
+	/* prototype: events to the log (mcu.c's mt6833_trace) */
+	if (type == PKT_TYPE_RX_EVENT && skb->len >= 28) {
+		const u8 *e = skb->data + 16;	/* len, type, eid, seq, rsv, ext_eid, ... */
+
+		dev_info(dev->mt76.dev, "mcu rx eid %02x seq %u len %u: %*ph\n", e[4], e[5],
+			 get_unaligned_le16(e), min_t(int, skb->len - 28, 16), e + 12);
+	}
 }
 
 void mt7615_queue_rx_skb(struct mt76_dev *mdev, enum mt76_rxq_id q,
