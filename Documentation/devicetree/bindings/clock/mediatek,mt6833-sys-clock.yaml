@@ -11,8 +11,9 @@ maintainers:
 
 description:
   The MediaTek system clock controllers provide the PLLs (apmixedsys), the
-  clock muxes and dividers (topckgen) and the infrastructure clock gates
-  and resets (infracfg_ao) of the MT6833. The clock IDs are in
+  clock muxes and dividers (topckgen), the infrastructure clock gates and
+  resets (infracfg_ao) and the CPU and CCI clock source selectors (mcusys)
+  of the MT6833. The clock IDs are in
   include/dt-bindings/clock/mediatek,mt6833-clk.h and the reset IDs in
   include/dt-bindings/reset/mediatek,mt6833-resets.h.
 
@@ -22,6 +23,7 @@ properties:
       - enum:
           - mediatek,mt6833-apmixedsys
           - mediatek,mt6833-infracfg-ao
+          - mediatek,mt6833-mcusys
           - mediatek,mt6833-topckgen
       - const: syscon
 

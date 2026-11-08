@@ -337,6 +337,11 @@
 #define CLK_APMIXED_NPUPLL				13
 #define CLK_APMIXED_USBPLL				14
 
+/* MCUSYS */
+#define CLK_MCU_ARMPLL_LL_SEL				0
+#define CLK_MCU_ARMPLL_BL_SEL				1
+#define CLK_MCU_ARMPLL_BUS_SEL				2
+
 /* IMP_IIC_WRAP_C */
 #define CLK_IMPC_I2C10_AP_CLOCK				0
 #define CLK_IMPC_I2C11_AP_CLOCK				1
