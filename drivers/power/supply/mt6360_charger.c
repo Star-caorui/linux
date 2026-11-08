@@ -67,7 +67,7 @@
 #define MT6360_IEOC_SHFT	(4)
 #define MT6360_IEOC_MASK	GENMASK(7, 4)
 /* MT6360_PMU_CHG_CTRL10 */
-#define MT6360_OTG_OC_MASK	GENMASK(3, 0)
+#define MT6360_OTG_OC_MASK	GENMASK(2, 0)
 /* MT6360_PMU_CHG_CTRL13 */
 #define MT6360_CHG_WDT_EN_MASK	BIT(7)
 /* MT6360_PMU_DEVICE_TYPE */
@@ -660,6 +660,13 @@ static const struct regulator_ops mt6360_chg_otg_ops = {
 	.is_enabled = regulator_is_enabled_regmap,
 	.set_voltage_sel = regulator_set_voltage_sel_regmap,
 	.get_voltage_sel = regulator_get_voltage_sel_regmap,
+	.set_current_limit = regulator_set_current_limit_regmap,
+	.get_current_limit = regulator_get_current_limit_regmap,
+};
+
+/* The boost's overcurrent thresholds */
+static const unsigned int mt6360_otg_oc_microamp[] = {
+	500000, 700000, 1100000, 1300000, 1800000, 2100000, 2400000, 3000000,
 };
 
 static const struct regulator_desc mt6360_otg_rdesc = {
@@ -675,6 +682,10 @@ static const struct regulator_desc mt6360_otg_rdesc = {
 	.vsel_mask = MT6360_VOBST_MASK,
 	.enable_reg = MT6360_PMU_CHG_CTRL1,
 	.enable_mask = MT6360_OPA_MODE_MASK,
+	.curr_table = mt6360_otg_oc_microamp,
+	.n_current_limits = ARRAY_SIZE(mt6360_otg_oc_microamp),
+	.csel_reg = MT6360_PMU_CHG_CTRL10,
+	.csel_mask = MT6360_OTG_OC_MASK,
 };
 
 static irqreturn_t mt6360_pmu_attach_i_handler(int irq, void *data)
