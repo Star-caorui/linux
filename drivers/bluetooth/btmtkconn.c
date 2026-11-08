@@ -9,6 +9,10 @@
  * before switching Bluetooth on. Everything goes in STP "mand" frames (80, type << 4 | len_hi,
  * len_lo, 00, payload, 00 00): WMT is type 4, HCI (H:4) type 0, firmware log/assert text type 5.
  * Connsys stays powered once up (no power-off, no PSM): closing only switches Bluetooth off.
+ *
+ * Until connsys has a driver of its own, this one also provides <linux/soc/mediatek/mtk-connsys.h>
+ * for the Wi-Fi driver: power-on is shared, and Wi-Fi copies part of its firmware into the same
+ * reserved memory.
  */
 #include <linux/clk.h>
 #include <linux/delay.h>
@@ -21,6 +25,7 @@
 #include <linux/pm_runtime.h>
 #include <linux/regulator/consumer.h>
 #include <linux/serdev.h>
+#include <linux/soc/mediatek/mtk-connsys.h>
 #include <linux/skbuff.h>
 #include <linux/unaligned.h>
 #include <net/bluetooth/bluetooth.h>
@@ -95,7 +100,13 @@ static const struct wmt_step wmt_init[] = {
 static const u8 wmt_bt_on[] = { 0x01, 0x06, 0x02, 0x00, 0x00, 0x01 };
 static const u8 wmt_bt_off[] = { 0x01, 0x06, 0x02, 0x00, 0x00, 0x00 };
 
+struct mtk_connsys {
+	struct list_head node;
+	struct device_node *np;		/* the "mediatek,connsys" node */
+};
+
 struct btmtkconn {
+	struct mtk_connsys cs;
 	struct serdev_device *serdev;
 	struct hci_dev *hdev;
 	struct hci_uart hu;		/* only for h4_recv_buf() */
@@ -104,8 +115,10 @@ struct btmtkconn {
 	struct regulator *vcn18, *vcn33_1, *vcn33_2;
 	phys_addr_t emi_phys;
 	size_t emi_size;
+	struct mutex power_lock;	/* powered, failed, users */
 	bool powered;
 	bool failed;
+	unsigned int users;		/* other connsys functions (Wi-Fi) */
 
 	/* STP receive */
 	u8 hdr[4];
@@ -448,35 +461,109 @@ static int connsys_power_on(struct btmtkconn *bc, const struct firmware **fw)
 	return 0;
 }
 
-static int btmtkconn_open(struct hci_dev *hdev)
+/* with power_lock held */
+static int connsys_up(struct btmtkconn *bc)
 {
-	struct btmtkconn *bc = hci_get_drvdata(hdev);
+	const struct firmware *fw[ARRAY_SIZE(patches)] = { };
+	struct hci_dev *hdev = bc->hdev;
 	int i, ret;
 
 	if (bc->failed)
 		return -EIO;	/* power-on is tried once per boot */
-	if (!bc->powered) {
-		const struct firmware *fw[ARRAY_SIZE(patches)] = { };
+	if (bc->powered)
+		return 0;
 
-		ret = load_patches(bc, fw);
-		if (ret) {
-			bt_dev_warn(hdev, "ROM patches not available (%d): not powering on yet", ret);
-			return ret;
-		}
-		bc->powered = true;
-		ret = connsys_power_on(bc, fw);
-		release_patches(fw);
-		if (!ret)
-			for (i = 0; i < ARRAY_SIZE(wmt_init) && !ret; i++)
-				ret = wmt_cmd(bc, wmt_init[i].cmd, wmt_init[i].len,
-					      wmt_init[i].timeout_ms);
-		if (ret) {
-			bc->failed = true;
-			bt_dev_err(hdev, "connsys bring-up failed: %d", ret);
-			return ret;
-		}
-		bt_dev_info(hdev, "connsys up");
+	ret = load_patches(bc, fw);
+	if (ret) {
+		bt_dev_warn(hdev, "ROM patches not available (%d): not powering on yet", ret);
+		return ret;
 	}
+	bc->powered = true;
+	ret = connsys_power_on(bc, fw);
+	release_patches(fw);
+	if (!ret)
+		for (i = 0; i < ARRAY_SIZE(wmt_init) && !ret; i++)
+			ret = wmt_cmd(bc, wmt_init[i].cmd, wmt_init[i].len, wmt_init[i].timeout_ms);
+	if (ret) {
+		bc->failed = true;
+		bt_dev_err(hdev, "connsys bring-up failed: %d", ret);
+		return ret;
+	}
+	bt_dev_info(hdev, "connsys up");
+	return 0;
+}
+
+static LIST_HEAD(connsys_list);
+static DEFINE_MUTEX(connsys_list_lock);
+
+struct mtk_connsys *mtk_connsys_get(struct device_node *np)
+{
+	struct mtk_connsys *cs, *found = ERR_PTR(-EPROBE_DEFER);
+
+	mutex_lock(&connsys_list_lock);
+	list_for_each_entry(cs, &connsys_list, node)
+		if (cs->np == np) {
+			found = cs;
+			break;
+		}
+	mutex_unlock(&connsys_list_lock);
+	return found;
+}
+EXPORT_SYMBOL_GPL(mtk_connsys_get);
+
+int mtk_connsys_power_on(struct mtk_connsys *cs)
+{
+	struct btmtkconn *bc = container_of(cs, struct btmtkconn, cs);
+	int ret;
+
+	mutex_lock(&bc->power_lock);
+	ret = connsys_up(bc);
+	if (!ret)
+		bc->users++;
+	mutex_unlock(&bc->power_lock);
+	return ret;
+}
+EXPORT_SYMBOL_GPL(mtk_connsys_power_on);
+
+/* connsys has no power-off yet: it stays up */
+void mtk_connsys_power_off(struct mtk_connsys *cs)
+{
+	struct btmtkconn *bc = container_of(cs, struct btmtkconn, cs);
+
+	mutex_lock(&bc->power_lock);
+	if (!WARN_ON(!bc->users))
+		bc->users--;
+	mutex_unlock(&bc->power_lock);
+}
+EXPORT_SYMBOL_GPL(mtk_connsys_power_off);
+
+int mtk_connsys_emi_write(struct mtk_connsys *cs, u32 offset, const void *data, size_t len)
+{
+	struct btmtkconn *bc = container_of(cs, struct btmtkconn, cs);
+	void *emi;
+
+	if (offset > bc->emi_size || len > bc->emi_size - offset)
+		return -EINVAL;
+	emi = memremap(bc->emi_phys + offset, len, MEMREMAP_WC);
+	if (!emi)
+		return -ENOMEM;
+	memcpy(emi, data, len);
+	wmb();
+	memunmap(emi);
+	return 0;
+}
+EXPORT_SYMBOL_GPL(mtk_connsys_emi_write);
+
+static int btmtkconn_open(struct hci_dev *hdev)
+{
+	struct btmtkconn *bc = hci_get_drvdata(hdev);
+	int ret;
+
+	mutex_lock(&bc->power_lock);
+	ret = connsys_up(bc);
+	mutex_unlock(&bc->power_lock);
+	if (ret)
+		return ret;
 	return wmt_cmd(bc, wmt_bt_on, sizeof(wmt_bt_on), 2000);
 }
 
@@ -488,8 +575,10 @@ static int btmtkconn_close(struct hci_dev *hdev)
 	skb_queue_purge(&bc->txq);
 	kfree_skb(bc->rx_skb);
 	bc->rx_skb = NULL;
+	mutex_lock(&bc->power_lock);
 	if (bc->powered && !bc->failed)
 		wmt_cmd(bc, wmt_bt_off, sizeof(wmt_bt_off), 2000);
+	mutex_unlock(&bc->power_lock);
 	return 0;
 }
 
@@ -561,6 +650,11 @@ static int btmtkconn_set_bdaddr(struct hci_dev *hdev, const bdaddr_t *bdaddr)
 	return 0;
 }
 
+static void put_connsys_node(void *np)
+{
+	of_node_put(np);
+}
+
 static int btmtkconn_probe(struct serdev_device *serdev)
 {
 	struct device *dev = &serdev->dev;
@@ -596,7 +690,10 @@ static int btmtkconn_probe(struct serdev_device *serdev)
 			return dev_err_probe(dev, ret, "connsys reg %d\n", i);
 		}
 	}
-	of_node_put(np);
+	bc->cs.np = np;
+	ret = devm_add_action_or_reset(dev, put_connsys_node, np);
+	if (ret)
+		return ret;
 
 	np = of_parse_phandle(dev->of_node, "memory-region", 0);
 	rmem = np ? of_reserved_mem_lookup(np) : NULL;
@@ -619,6 +716,7 @@ static int btmtkconn_probe(struct serdev_device *serdev)
 	if (IS_ERR(bc->vcn33_2))
 		return dev_err_probe(dev, PTR_ERR(bc->vcn33_2), "vcn33-2\n");
 
+	mutex_init(&bc->power_lock);
 	mutex_init(&bc->wmt_lock);
 	mutex_init(&bc->tx_lock);
 	init_completion(&bc->wmt_done);
@@ -666,6 +764,10 @@ static int btmtkconn_probe(struct serdev_device *serdev)
 		hci_free_dev(hdev);
 		return dev_err_probe(dev, ret, "register\n");
 	}
+
+	mutex_lock(&connsys_list_lock);
+	list_add_tail(&bc->cs.node, &connsys_list);
+	mutex_unlock(&connsys_list_lock);
 	return 0;
 }
 
@@ -673,6 +775,9 @@ static void btmtkconn_remove(struct serdev_device *serdev)
 {
 	struct btmtkconn *bc = serdev_device_get_drvdata(serdev);
 
+	mutex_lock(&connsys_list_lock);
+	list_del(&bc->cs.node);
+	mutex_unlock(&connsys_list_lock);
 	hci_unregister_dev(bc->hdev);
 	hci_free_dev(bc->hdev);
 	serdev_device_close(serdev);
