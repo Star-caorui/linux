@@ -48,7 +48,12 @@
 			compatible = "arm,cortex-a55";
 			reg = <0x000>;
 			enable-method = "psci";
+			clocks = <&mcusys CLK_MCU_ARMPLL_LL_SEL>, <&clk26m>;
+			clock-names = "cpu", "intermediate";
 			capacity-dmips-mhz = <405>;
+			dynamic-power-coefficient = <85>;
+			mediatek,cci = <&cci>;
+			#cooling-cells = <2>;
 		};
 
 		cpu1: cpu@100 {
@@ -56,7 +61,12 @@
 			compatible = "arm,cortex-a55";
 			reg = <0x100>;
 			enable-method = "psci";
+			clocks = <&mcusys CLK_MCU_ARMPLL_LL_SEL>, <&clk26m>;
+			clock-names = "cpu", "intermediate";
 			capacity-dmips-mhz = <405>;
+			dynamic-power-coefficient = <85>;
+			mediatek,cci = <&cci>;
+			#cooling-cells = <2>;
 		};
 
 		cpu2: cpu@200 {
@@ -64,7 +74,12 @@
 			compatible = "arm,cortex-a55";
 			reg = <0x200>;
 			enable-method = "psci";
+			clocks = <&mcusys CLK_MCU_ARMPLL_LL_SEL>, <&clk26m>;
+			clock-names = "cpu", "intermediate";
 			capacity-dmips-mhz = <405>;
+			dynamic-power-coefficient = <85>;
+			mediatek,cci = <&cci>;
+			#cooling-cells = <2>;
 		};
 
 		cpu3: cpu@300 {
@@ -72,7 +87,12 @@
 			compatible = "arm,cortex-a55";
 			reg = <0x300>;
 			enable-method = "psci";
+			clocks = <&mcusys CLK_MCU_ARMPLL_LL_SEL>, <&clk26m>;
+			clock-names = "cpu", "intermediate";
 			capacity-dmips-mhz = <405>;
+			dynamic-power-coefficient = <85>;
+			mediatek,cci = <&cci>;
+			#cooling-cells = <2>;
 		};
 
 		cpu4: cpu@400 {
@@ -80,7 +100,12 @@
 			compatible = "arm,cortex-a55";
 			reg = <0x400>;
 			enable-method = "psci";
+			clocks = <&mcusys CLK_MCU_ARMPLL_LL_SEL>, <&clk26m>;
+			clock-names = "cpu", "intermediate";
 			capacity-dmips-mhz = <405>;
+			dynamic-power-coefficient = <85>;
+			mediatek,cci = <&cci>;
+			#cooling-cells = <2>;
 		};
 
 		cpu5: cpu@500 {
@@ -88,7 +113,12 @@
 			compatible = "arm,cortex-a55";
 			reg = <0x500>;
 			enable-method = "psci";
+			clocks = <&mcusys CLK_MCU_ARMPLL_LL_SEL>, <&clk26m>;
+			clock-names = "cpu", "intermediate";
 			capacity-dmips-mhz = <405>;
+			dynamic-power-coefficient = <85>;
+			mediatek,cci = <&cci>;
+			#cooling-cells = <2>;
 		};
 
 		cpu6: cpu@600 {
@@ -96,7 +126,12 @@
 			compatible = "arm,cortex-a76";
 			reg = <0x600>;
 			enable-method = "psci";
+			clocks = <&mcusys CLK_MCU_ARMPLL_BL_SEL>, <&clk26m>;
+			clock-names = "cpu", "intermediate";
 			capacity-dmips-mhz = <1024>;
+			dynamic-power-coefficient = <275>;
+			mediatek,cci = <&cci>;
+			#cooling-cells = <2>;
 		};
 
 		cpu7: cpu@700 {
@@ -104,7 +139,12 @@
 			compatible = "arm,cortex-a76";
 			reg = <0x700>;
 			enable-method = "psci";
+			clocks = <&mcusys CLK_MCU_ARMPLL_BL_SEL>, <&clk26m>;
+			clock-names = "cpu", "intermediate";
 			capacity-dmips-mhz = <1024>;
+			dynamic-power-coefficient = <275>;
+			mediatek,cci = <&cci>;
+			#cooling-cells = <2>;
 		};
 
 		cpu-map {
@@ -135,6 +175,14 @@
 				};
 			};
 		};
+	};
+
+	/* Its OPPs depend on the bin, so they come with the board. */
+	cci: cci {
+		compatible = "mediatek,mt6833-cci";
+		clocks = <&mcusys CLK_MCU_ARMPLL_BUS_SEL>, <&clk26m>;
+		clock-names = "cci", "intermediate";
+		status = "disabled";
 	};
 
 	/*
@@ -523,6 +571,12 @@
 					affinity = <&cpu6 &cpu7>;
 				};
 			};
+		};
+
+		mcusys: syscon@c53a000 {
+			compatible = "mediatek,mt6833-mcusys", "syscon";
+			reg = <0 0x0c53a000 0 0x1000>;
+			#clock-cells = <1>;
 		};
 
 		topckgen: syscon@10000000 {
