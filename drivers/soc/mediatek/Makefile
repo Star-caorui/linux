@@ -10,3 +10,4 @@ obj-$(CONFIG_MTK_MMSYS) += mtk-mutex.o
 obj-$(CONFIG_MTK_SVS) += mtk-svs.o
 obj-$(CONFIG_MTK_SOCINFO) += mtk-socinfo.o
 obj-$(CONFIG_MTK_CPU_HOTPLUG) += mtk-cpu-hotplug.o
+obj-$(CONFIG_MTK_LPM_SMC_DEBUG) += mtk-lpm-smc-debug.o

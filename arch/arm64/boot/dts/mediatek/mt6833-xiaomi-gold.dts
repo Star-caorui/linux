@@ -152,7 +152,7 @@
 		#size-cells = <2>;
 		ranges;
 
-		bootargs = "console=tty0 loglevel=7 panic=10 clk_ignore_unused";
+		bootargs = "console=tty0 loglevel=7 panic=10 clk_ignore_unused irqchip.gicv3_pseudo_nmi=1 ftrace_dump_on_oops no_console_suspend";
 
 		/* The bootloader leaves the panel lit, scanning out this buffer */
 		framebuffer@73c10000 {
@@ -1833,3 +1833,24 @@
 		};
 	};
 };
+
+/* DEBUG: the vendor's suspend-to-idle state, never picked at run time */
+&{/cpus/idle-states} {
+	cpu_s2idle: cpu-s2idle {
+		compatible = "arm,idle-state";
+		arm,psci-suspend-param = <0x01010100>;
+		local-timer-stop;
+		entry-latency-us = <500>;
+		exit-latency-us = <1400>;
+		min-residency-us = <4294967295>;
+	};
+};
+
+&cpu0 { cpu-idle-states = <&cpu_off_l &cluster_off_l &cpu_s2idle>; };
+&cpu1 { cpu-idle-states = <&cpu_off_l &cluster_off_l &cpu_s2idle>; };
+&cpu2 { cpu-idle-states = <&cpu_off_l &cluster_off_l &cpu_s2idle>; };
+&cpu3 { cpu-idle-states = <&cpu_off_l &cluster_off_l &cpu_s2idle>; };
+&cpu4 { cpu-idle-states = <&cpu_off_l &cluster_off_l &cpu_s2idle>; };
+&cpu5 { cpu-idle-states = <&cpu_off_l &cluster_off_l &cpu_s2idle>; };
+&cpu6 { cpu-idle-states = <&cpu_off_b &cluster_off_b &cpu_s2idle>; };
+&cpu7 { cpu-idle-states = <&cpu_off_b &cluster_off_b &cpu_s2idle>; };

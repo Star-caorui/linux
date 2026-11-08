@@ -90,6 +90,12 @@ config MTK_CPU_HOTPLUG
 	  request once a CPU is dead, so that it can be brought back online
 	  (needed for CPU hotplug and suspend).
 
+config MTK_LPM_SMC_DEBUG
+	bool "DEBUG: MediaTek LPM SiP calls from debugfs"
+	depends on ARM64 && HAVE_ARM_SMCCC && DEBUG_FS
+	help
+	  Local bring-up aid only.
+
 config MTK_SOCINFO
 	tristate "MediaTek SoC Information"
 	default y
