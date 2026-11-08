@@ -209,6 +209,15 @@ void mt7615_dma_start(struct mt7615_dev *dev)
 	if (is_mt7622(&dev->mt76))
 		mt7622_dma_sched_init(dev);
 
+	/*
+	 * MT6833: on the SoC's bus the PDMA has to hold its DRAM request (APSRC) and keep its clock
+	 * running, or it never reaches memory (as MediaTek's asicPdmaConfig())
+	 */
+	if (is_mt6833(&dev->mt76)) {
+		mt76_set(dev, MT_WPDMA_APSRC_ACK_LOCK_SLPPROT, BIT(4));
+		mt76_set(dev, MT_WPDMA_GLO_CFG, MT_WPDMA_GLO_CFG_CLK_GATE_DIS);
+	}
+
 	if (is_mt7663(&dev->mt76)) {
 		mt7663_dma_sched_init(dev);
 
