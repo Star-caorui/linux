@@ -1137,7 +1137,9 @@
 };
 
 /*
- * The touchscreen: an FT3683G here, a Goodix GT9916R in other units, on the one chip select. Its analog
+ * The touchscreen on the one chip select: a FocalTech FT3683G, or a Goodix GT9916R in other
+ * units (mt6833-xiaomi-gold-gt9916r.dtb). Its analog supply is the MT6360's LDO2, its I/O
+ * supply switched by GPIO138.
  */
 &spi4 {
 	pinctrl-names = "default";

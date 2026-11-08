@@ -1,0 +1,25 @@
+// SPDX-License-Identifier: (GPL-2.0-only OR MIT)
+/*
+ * Xiaomi Redmi Note 13 5G (gold) with a Goodix GT9916R touchscreen instead of the FocalTech
+ * FT3683G. The stock kernel describes both and keeps whichever answers; the GT9916R is a Berlin-D
+ * chip (stock's driver reads it with 3 dummy bytes, at the GT9916's addresses).
+ */
+
+#include "mt6833-xiaomi-gold.dts"
+
+&spi4 {
+	/delete-node/ touchscreen@0;
+
+	touchscreen@0 {
+		compatible = "goodix,gt9916";
+		reg = <0>;
+		spi-max-frequency = <5000000>;
+		interrupts-extended = <&pio 14 IRQ_TYPE_EDGE_FALLING>;
+		reset-gpios = <&pio 15 GPIO_ACTIVE_LOW>;
+		avdd-supply = <&mt6360_ldo2_reg>;
+		vddio-supply = <&touch_iovdd>;
+		/* in sixteenths of a pixel, as the stock driver is told */
+		touchscreen-size-x = <17280>;
+		touchscreen-size-y = <38400>;
+	};
+};
