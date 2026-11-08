@@ -348,8 +348,8 @@ mt7615_regd_notifier(struct wiphy *wiphy,
 		mt7615_dfs_init_radar_detector(phy);
 
 	if (mt7615_firmware_offload(phy->dev)) {
-		mt76_connac_mcu_set_channel_domain(mphy);
-		mt76_connac_mcu_set_rate_txpower(mphy);
+		mt7615_mcu_set_channel_domain(phy);
+		mt7615_mcu_set_rate_txpower(phy);
 	}
 
 	mt7615_mutex_release(dev);

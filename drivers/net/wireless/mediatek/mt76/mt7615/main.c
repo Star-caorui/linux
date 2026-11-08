@@ -64,11 +64,11 @@ static int mt7615_start(struct ieee80211_hw *hw)
 	}
 
 	if (mt7615_firmware_offload(dev)) {
-		ret = mt76_connac_mcu_set_channel_domain(phy->mt76);
+		ret = mt7615_mcu_set_channel_domain(phy);
 		if (ret)
 			goto out;
 
-		ret = mt76_connac_mcu_set_rate_txpower(phy->mt76);
+		ret = mt7615_mcu_set_rate_txpower(phy);
 		if (ret)
 			goto out;
 	}
@@ -417,7 +417,7 @@ static int mt7615_set_sar_specs(struct ieee80211_hw *hw,
 		return err;
 
 	if (mt7615_firmware_offload(phy->dev))
-		return mt76_connac_mcu_set_rate_txpower(phy->mt76);
+		return mt7615_mcu_set_rate_txpower(phy);
 
 	return mt76_update_channel(phy->mt76);
 }

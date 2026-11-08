@@ -301,6 +301,8 @@ struct mt7615_dev {
 	u8 *nvram;
 	/* MT6833: receive descriptors have a fifth word (learnt from the first event) */
 	s8 rxd_dw4;
+	/* MT6833: the firmware takes the kernel's channel list and per-rate power limits */
+	bool single_sku;
 };
 
 enum tx_pkt_queue_idx {
@@ -430,6 +432,8 @@ int mt7615_mcu_set_wmm(struct mt7615_dev *dev, u8 queue,
 void mt7615_mcu_rx_event(struct mt7615_dev *dev, struct sk_buff *skb);
 int mt7615_mcu_rdd_send_pattern(struct mt7615_dev *dev);
 int mt7615_mcu_fw_log_2_host(struct mt7615_dev *dev, u8 ctrl);
+int mt7615_mcu_set_channel_domain(struct mt7615_phy *phy);
+int mt7615_mcu_set_rate_txpower(struct mt7615_phy *phy);
 
 static inline bool mt7615_firmware_offload(struct mt7615_dev *dev)
 {

@@ -1794,6 +1794,164 @@ static int mt6833_load_firmware(struct mt7615_dev *dev)
 	return 0;
 }
 
+/*
+ * MT6833: what the firmware says about itself (MediaTek's wlanQueryNicCapabilityV2(), right after
+ * the firmware start). What matters here is TAG_CAP_SINGLE_SKU: without it, the firmware takes the
+ * regulatory domain as sub-bands and knows no per-rate power limits.
+ */
+static int mt6833_mcu_get_nic_capability(struct mt7615_dev *dev)
+{
+	struct {
+		__le16 n_element;
+		u8 rsv[2];
+	} __packed *hdr;
+	DECLARE_BITMAP(tags, 64) = {};
+	struct sk_buff *skb;
+	int ret, i;
+
+	ret = mt76_mcu_send_and_get_msg(&dev->mt76, MCU_CE_QUERY(GET_NIC_CAPAB), NULL, 0,
+					true, &skb);
+	if (ret)
+		return ret;
+
+	skb_pull(skb, sizeof(struct mt7615_mcu_rxd));
+	hdr = (void *)skb->data;
+	if (skb->len < sizeof(*hdr)) {
+		ret = -EINVAL;
+		goto out;
+	}
+	skb_pull(skb, sizeof(*hdr));
+
+	for (i = 0; i < le16_to_cpu(hdr->n_element); i++) {
+		struct {
+			__le32 type;
+			__le32 len;
+		} __packed *tlv = (void *)skb->data;
+		u32 type, len;
+
+		if (skb->len < sizeof(*tlv))
+			break;
+		type = le32_to_cpu(tlv->type);
+		len = le32_to_cpu(tlv->len);
+		skb_pull(skb, sizeof(*tlv));
+		if (skb->len < len)
+			break;
+
+		if (type < 64)
+			__set_bit(type, tags);
+		if (type == MT_NIC_CAP_SINGLE_SKU)
+			dev->single_sku = true;
+		skb_pull(skb, len);
+	}
+	dev_info(dev->mt76.dev, "firmware capabilities %*pbl, single SKU %d\n", 64, tags,
+		 dev->single_sku);
+out:
+	dev_kfree_skb(skb);
+	return ret;
+}
+
+/* MediaTek's regulatory classes for the channel sets of CMD_SET_DOMAIN_INFO */
+static u8 mt6833_reg_class(u8 ch)
+{
+	if (ch <= 13)
+		return 81;
+	if (ch == 14)
+		return 82;
+	if (ch <= 48)
+		return 115;
+	if (ch <= 64)
+		return 118;
+	if (ch <= 144)
+		return 121;
+	return 125;
+}
+
+/*
+ * MT6833 without single SKU: the regulatory domain as runs of channels (MediaTek's
+ * CMD_SET_DOMAIN_INFO, rlmDomainSendDomainInfoCmd()). Its firmware asserts in rlm/domain.c on
+ * the channel list of mt76_connac_mcu_set_channel_domain() (CMD_SET_DOMAIN_INFO_V2).
+ */
+static int mt6833_mcu_set_domain_info(struct mt7615_phy *phy)
+{
+	struct mt7615_dev *dev = phy->dev;
+	struct ieee80211_supported_band *sband[] = {
+		&phy->mt76->sband_2g.sband, &phy->mt76->sband_5g.sband,
+	};
+	struct mt6833_subband {
+		u8 reg_class;
+		u8 band;	/* 1: 2.4 GHz, 2: 5 GHz */
+		u8 span;	/* channel number step: 1 (5 MHz) or 4 (20 MHz) */
+		u8 first;
+		u8 num;
+		u8 dfs;
+		u8 rsv[2];
+	} __packed *s = NULL;
+	struct {
+		__le16 country;		/* alpha2[0] << 8 | alpha2[1] */
+		__le16 passive_scan;
+		struct mt6833_subband sub[6];
+		u8 bw_2g;	/* 0: 20/40 MHz, as MediaTek's driver */
+		u8 bw_5g;
+		u8 rsv[2];
+	} __packed req = {
+		.country = cpu_to_le16(dev->mt76.alpha2[0] << 8 | dev->mt76.alpha2[1]),
+	};
+	int b, i, n = 0;
+
+	for (b = 0; b < ARRAY_SIZE(sband); b++) {
+		for (i = 0; i < sband[b]->n_channels; i++) {
+			struct ieee80211_channel *chan = &sband[b]->channels[i];
+			u8 ch = chan->hw_value, class = mt6833_reg_class(ch);
+			bool dfs = chan->flags & IEEE80211_CHAN_RADAR;
+
+			/*
+			 * six sub-bands: 2.4 GHz and the five 5 GHz sets; channel 14 (802.11b
+			 * only, Japan) would take the room of one of them
+			 */
+			if ((chan->flags & IEEE80211_CHAN_DISABLED) || ch == 14)
+				continue;
+			if (s && s->reg_class == class && s->dfs == dfs &&
+			    ch == s->first + s->num * s->span) {
+				s->num++;
+				continue;
+			}
+			if (n == ARRAY_SIZE(req.sub)) {
+				dev_warn(dev->mt76.dev, "domain: no room for channel %u\n", ch);
+				continue;
+			}
+			s = &req.sub[n++];
+			s->reg_class = class;
+			s->band = b + 1;
+			s->span = b ? 4 : 1;
+			s->first = ch;
+			s->num = 1;
+			s->dfs = dfs;
+		}
+	}
+
+	return mt76_mcu_send_msg(&dev->mt76, MCU_CE_CMD(SET_CHAN_DOMAIN), &req, sizeof(req),
+				 false);
+}
+
+int mt7615_mcu_set_channel_domain(struct mt7615_phy *phy)
+{
+	if (is_mt6833(&phy->dev->mt76) && !phy->dev->single_sku)
+		return mt6833_mcu_set_domain_info(phy);
+
+	return mt76_connac_mcu_set_channel_domain(phy->mt76);
+}
+EXPORT_SYMBOL_GPL(mt7615_mcu_set_channel_domain);
+
+int mt7615_mcu_set_rate_txpower(struct mt7615_phy *phy)
+{
+	/* without single SKU the firmware keeps the NVRAM's target powers */
+	if (is_mt6833(&phy->dev->mt76) && !phy->dev->single_sku)
+		return 0;
+
+	return mt76_connac_mcu_set_rate_txpower(phy->mt76);
+}
+EXPORT_SYMBOL_GPL(mt7615_mcu_set_rate_txpower);
+
 int mt7615_mcu_init(struct mt7615_dev *dev)
 {
 	static const struct mt76_mcu_ops mt7615_mcu_ops = {
@@ -1836,7 +1994,11 @@ int mt7615_mcu_init(struct mt7615_dev *dev)
 			return ret;
 	}
 
-	return mt7615_mcu_fw_log_2_host(dev, 0);
+	ret = mt7615_mcu_fw_log_2_host(dev, 0);
+	if (ret || !is_mt6833(&dev->mt76))
+		return ret;
+
+	return mt6833_mcu_get_nic_capability(dev);
 }
 EXPORT_SYMBOL_GPL(mt7615_mcu_init);
 
