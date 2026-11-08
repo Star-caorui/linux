@@ -30190,6 +30190,13 @@ L:	linux-rtc@vger.kernel.org
 S:	Maintained
 F:	drivers/rtc/rtc-sd3078.c
 
+WILL SEMICONDUCTOR WL2866D CAMERA PMIC DRIVER
+M:	Rui Cao <i@udp0.com>
+L:	linux-kernel@vger.kernel.org
+S:	Maintained
+F:	Documentation/devicetree/bindings/regulator/willsemi,wl2866d.yaml
+F:	drivers/regulator/wl2866d-regulator.c
+
 WIIMOTE HID DRIVER
 M:	David Rheinsberg <david@readahead.eu>
 L:	linux-input@vger.kernel.org
