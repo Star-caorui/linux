@@ -1615,12 +1615,54 @@ bool mt7615_rx_check(struct mt76_dev *mdev, void *data, int len)
 }
 EXPORT_SYMBOL_GPL(mt7615_rx_check);
 
+/*
+ * MT6833's receive descriptors (frames and events) have a fifth word, which the rest of the
+ * driver does not expect: drop it. Prototype: whether it is there is learnt from the first event,
+ * whose header's length field follows the descriptor; the first packets are dumped.
+ */
+static void mt6833_rx_fixup(struct mt7615_dev *dev, struct sk_buff *skb,
+			    enum rx_pkt_type type)
+{
+	static unsigned int dumped;
+	u32 len;
+	int l;
+
+	if (dumped < 6) {
+		dumped++;
+		dev_info(dev->mt76.dev, "rx %u: type %d, %u bytes\n", dumped, type, skb->len);
+		print_hex_dump(KERN_INFO, "mt6833 rx: ", DUMP_PREFIX_OFFSET, 16, 4,
+			       skb->data, min_t(unsigned int, skb->len, 64), false);
+	}
+
+	if (type != PKT_TYPE_RX_EVENT && type != PKT_TYPE_NORMAL &&
+	    type != PKT_TYPE_NORMAL_MCU)
+		return;
+
+	if (dev->rxd_dw4 < 0 && type == PKT_TYPE_RX_EVENT && skb->len >= 24) {
+		len = le32_get_bits(((__le32 *)skb->data)[0], MT_RXD0_LENGTH);
+		for (l = 20; l >= 16; l -= 4) {
+			u16 v = get_unaligned_le16(skb->data + l);
+
+			if (v == len - l || v == len) {
+				dev->rxd_dw4 = l == 20;
+				dev_info(dev->mt76.dev, "receive descriptors: %d bytes\n", l);
+				break;
+			}
+		}
+	}
+
+	if (dev->rxd_dw4 > 0 && skb->len >= 20) {
+		memmove(skb->data + 4, skb->data, 16);
+		skb_pull(skb, 4);
+	}
+}
+
 void mt7615_queue_rx_skb(struct mt76_dev *mdev, enum mt76_rxq_id q,
 			 struct sk_buff *skb, u32 *info)
 {
 	struct mt7615_dev *dev = container_of(mdev, struct mt7615_dev, mt76);
 	__le32 *rxd = (__le32 *)skb->data;
-	__le32 *end = (__le32 *)&skb->data[skb->len];
+	__le32 *end;
 	enum rx_pkt_type type;
 	u16 flag;
 
@@ -1628,6 +1670,12 @@ void mt7615_queue_rx_skb(struct mt76_dev *mdev, enum mt76_rxq_id q,
 	flag = le32_get_bits(rxd[0], MT_RXD0_PKT_FLAG);
 	if (type == PKT_TYPE_RX_EVENT && flag == 0x1)
 		type = PKT_TYPE_NORMAL_MCU;
+
+	if (is_mt6833(mdev)) {
+		mt6833_rx_fixup(dev, skb, type);
+		rxd = (__le32 *)skb->data;
+	}
+	end = (__le32 *)&skb->data[skb->len];
 
 	switch (type) {
 	case PKT_TYPE_TXS:

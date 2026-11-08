@@ -223,9 +223,18 @@ static inline bool is_connac2(struct mt76_dev *dev)
 				is_mt7902(dev);
 }
 
+/* the WMAC of MT6833's connsys: an MT7663, 1x1, on the AXI bus */
+static inline bool is_mt6833(struct mt76_dev *dev)
+{
+	if (!IS_ENABLED(CONFIG_MT6833_WMAC))
+		return false;
+
+	return mt76_chip(dev) == 0x6833;
+}
+
 static inline bool is_mt7663(struct mt76_dev *dev)
 {
-	return mt76_chip(dev) == 0x7663;
+	return mt76_chip(dev) == 0x7663 || is_mt6833(dev);
 }
 
 static inline bool is_mt7915(struct mt76_dev *dev)

@@ -6,6 +6,8 @@
  */
 
 #include <linux/firmware.h>
+#include <linux/of.h>
+#include <linux/soc/mediatek/mtk-connsys.h>
 #include "mt7615.h"
 #include "mcu.h"
 #include "mac.h"
@@ -261,8 +263,10 @@ static int mt7615_mcu_drv_pmctrl(struct mt7615_dev *dev)
 
 	if (is_mt7663(mdev)) {
 		/* Clear firmware own via N9 eint */
-		mt76_wr(dev, MT_PCIE_DOORBELL_PUSH, MT_CFG_LPCR_HOST_DRV_OWN);
-		mt76_poll(dev, MT_CONN_ON_MISC, MT_CFG_LPCR_HOST_FW_OWN, 0, 3000);
+		if (!is_mt6833(mdev)) {
+			mt76_wr(dev, MT_PCIE_DOORBELL_PUSH, MT_CFG_LPCR_HOST_DRV_OWN);
+			mt76_poll(dev, MT_CONN_ON_MISC, MT_CFG_LPCR_HOST_FW_OWN, 0, 3000);
+		}
 
 		addr = MT_CONN_HIF_ON_LPCTL;
 	} else {
@@ -303,7 +307,10 @@ static int mt7615_mcu_lp_drv_pmctrl(struct mt7615_dev *dev)
 		goto out;
 
 	for (i = 0; i < MT7615_DRV_OWN_RETRY_COUNT; i++) {
-		mt76_wr(dev, MT_PCIE_DOORBELL_PUSH, MT_CFG_LPCR_HOST_DRV_OWN);
+		if (is_mt6833(&dev->mt76))
+			mt76_wr(dev, MT_CONN_HIF_ON_LPCTL, MT_CFG_LPCR_HOST_DRV_OWN);
+		else
+			mt76_wr(dev, MT_PCIE_DOORBELL_PUSH, MT_CFG_LPCR_HOST_DRV_OWN);
 		if (mt76_poll_msec(dev, MT_CONN_HIF_ON_LPCTL,
 				   MT_CFG_LPCR_HOST_FW_OWN, 0, 50))
 			break;
@@ -1532,6 +1539,31 @@ static int mt7615_mcu_cal_cache_apply(struct mt7615_dev *dev)
 				 sizeof(data), false);
 }
 
+static struct mtk_connsys *mt6833_connsys(struct mt7615_dev *dev)
+{
+	struct device_node *np;
+	struct mtk_connsys *cs;
+
+	np = of_parse_phandle(dev->mt76.dev->of_node, "mediatek,connsys", 0);
+	if (!np)
+		return ERR_PTR(-EINVAL);
+	cs = mtk_connsys_get(np);
+	of_node_put(np);
+	return cs;
+}
+
+/* MT6833: a region the firmware runs from connsys' reserved memory, copied there directly */
+static int mt6833_load_emi_region(struct mt7615_dev *dev, u32 addr, const u8 *data, u32 len)
+{
+	struct mtk_connsys *cs = mt6833_connsys(dev);
+
+	if (IS_ERR(cs))
+		return PTR_ERR(cs);
+	if (addr < MT6833_EMI_BASE)
+		return -EINVAL;
+	return mtk_connsys_emi_write(cs, addr - MT6833_EMI_BASE, data, len);
+}
+
 static int mt7663_load_n9(struct mt7615_dev *dev, const char *name)
 {
 	u32 offset = 0, override_addr = 0, flag = FW_START_DLYCAL;
@@ -1551,6 +1583,13 @@ static int mt7663_load_n9(struct mt7615_dev *dev, const char *name)
 		goto out;
 	}
 
+	/*
+	 * MT6833 calibrates on its first start: delaying the 5 GHz calibration until EEPROM data
+	 * arrives (FW_START_DLYCAL) is for efuse chips
+	 */
+	if (is_mt6833(&dev->mt76))
+		flag = 0;
+
 	hdr = (const void *)(fw->data + fw->size - FW_V3_COMMON_TAILER_SIZE);
 	dev_info(dev->mt76.dev, "N9 Firmware Version: %.10s, Build Time: %.15s\n",
 		 hdr->fw_ver, hdr->build_date);
@@ -1568,6 +1607,24 @@ static int mt7663_load_n9(struct mt7615_dev *dev, const char *name)
 						   buf->feature_set, false);
 		addr = le32_to_cpu(buf->img_dest_addr);
 		len = le32_to_cpu(buf->img_size);
+
+		if (offset + len > fw->size - FW_V3_COMMON_TAILER_SIZE -
+				   hdr->n_region * FW_V3_REGION_TAILER_SIZE) {
+			dev_err(dev->mt76.dev, "Invalid firmware region %d\n", i);
+			ret = -EINVAL;
+			goto out;
+		}
+
+		if (is_mt6833(&dev->mt76) &&
+		    (buf->feature_set & FW_FEATURE_DL_TO_EMI)) {
+			ret = mt6833_load_emi_region(dev, addr, fw->data + offset, len);
+			if (ret) {
+				dev_err(dev->mt76.dev, "Region %d to EMI: %d\n", i, ret);
+				goto out;
+			}
+			offset += len;
+			continue;
+		}
 
 		ret = mt76_connac_mcu_init_download(&dev->mt76, addr, len,
 						    mode);
@@ -1706,6 +1763,37 @@ static int mt7663_load_firmware(struct mt7615_dev *dev)
 	return 0;
 }
 
+/* the ROM patch is in place already (connsys copies it); the client-offload firmware */
+static int mt6833_load_firmware(struct mt7615_dev *dev)
+{
+	int ret;
+
+	if (mt76_get_field(dev, MT_CONN_ON_MISC, MT_TOP_MISC2_FW_N9_RDY)) {
+		dev_err(dev->mt76.dev, "Firmware is already running\n");
+		return -EIO;
+	}
+
+	dev->fw_ver = MT7615_FIRMWARE_V3;
+	dev->mcu_ops = &uni_update_ops;
+
+	mt76_set(dev, MT_WPDMA_GLO_CFG, MT_WPDMA_GLO_CFG_BYPASS_TX_SCH);
+
+	ret = mt7663_load_n9(dev, MT6833_FIRMWARE_N9);
+	if (ret)
+		return ret;
+
+	if (!mt76_poll_msec(dev, MT_CONN_ON_MISC, MT_TOP_MISC2_FW_N9_RDY,
+			    MT_TOP_MISC2_FW_N9_RDY, 1500)) {
+		dev_err(dev->mt76.dev, "Timeout for initializing firmware (0x%08x)\n",
+			mt76_rr(dev, MT_CONN_ON_MISC));
+		return -EIO;
+	}
+
+	mt76_clear(dev, MT_WPDMA_GLO_CFG, MT_WPDMA_GLO_CFG_BYPASS_TX_SCH);
+
+	return 0;
+}
+
 int mt7615_mcu_init(struct mt7615_dev *dev)
 {
 	static const struct mt76_mcu_ops mt7615_mcu_ops = {
@@ -1727,6 +1815,9 @@ int mt7615_mcu_init(struct mt7615_dev *dev)
 		break;
 	case 0x7663:
 		ret = mt7663_load_firmware(dev);
+		break;
+	case 0x6833:
+		ret = mt6833_load_firmware(dev);
 		break;
 	default:
 		ret = mt7615_load_firmware(dev);
@@ -1771,6 +1862,12 @@ int mt7615_mcu_set_eeprom(struct mt7615_dev *dev)
 	int eep_len, offset;
 
 	switch (mt76_chip(&dev->mt76)) {
+	case 0x6833:
+		/* the board's NVRAM file, whole; the firmware sends no answer */
+		if (!dev->nvram)
+			return 0;
+		return mt76_mcu_send_msg(&dev->mt76, MCU_CE_CMD(SET_NVRAM),
+					 dev->nvram, MT6833_NVRAM_SIZE, false);
 	case 0x7622:
 		eep_len = MT7622_EE_MAX - MT_EE_NIC_CONF_0;
 		offset = MT_EE_NIC_CONF_0;

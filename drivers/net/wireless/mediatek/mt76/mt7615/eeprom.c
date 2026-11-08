@@ -81,6 +81,10 @@ static int mt7615_eeprom_load(struct mt7615_dev *dev, u32 addr)
 	if (ret < 0)
 		return ret;
 
+	/* MT6833 has no efuse (and its efuse window is not there) */
+	if (is_mt6833(&dev->mt76))
+		return 0;
+
 	return mt7615_efuse_init(dev, addr);
 }
 
@@ -92,6 +96,7 @@ static int mt7615_check_eeprom(struct mt76_dev *dev)
 	case 0x7615:
 	case 0x7622:
 	case 0x7663:
+	case 0x6833:
 		return 0;
 	default:
 		return -EINVAL;
@@ -330,6 +335,27 @@ static void mt7615_cal_free_data(struct mt7615_dev *dev)
 	}
 }
 
+/*
+ * MT6833 keeps its calibration in the board's NVRAM file, which goes to the firmware as it is
+ * (mt7615_mcu_set_eeprom()). What the driver reads from the EEPROM: one chain, and target powers
+ * that leave the limits to the regulatory rules and the firmware.
+ */
+static void mt6833_eeprom_defaults(struct mt7615_dev *dev)
+{
+	u8 *eep = dev->mt76.eeprom.data;
+	int i;
+
+	if (get_unaligned_le16(eep) == 0x6833)
+		return;	/* from the device tree */
+
+	memset(eep, 0, MT7663_EEPROM_SIZE);
+	put_unaligned_le16(0x6833, eep + MT_EE_CHIP_ID);
+	eep[MT7663_EE_HW_CONF1] = FIELD_PREP(MT_EE_HW_CONF1_TX_MASK, 1);
+	eep[MT7663_EE_TX0_2G_TARGET_POWER] = 0x28;
+	for (i = 0; i < 8 * 3; i += 3)
+		eep[MT7663_EE_TX0_5G_G0_TARGET_POWER + i] = 0x28;
+}
+
 int mt7615_eeprom_init(struct mt7615_dev *dev, u32 addr)
 {
 	int ret;
@@ -337,6 +363,9 @@ int mt7615_eeprom_init(struct mt7615_dev *dev, u32 addr)
 	ret = mt7615_eeprom_load(dev, addr);
 	if (ret < 0)
 		return ret;
+
+	if (is_mt6833(&dev->mt76))
+		mt6833_eeprom_defaults(dev);
 
 	ret = mt7615_check_eeprom(&dev->mt76);
 	if (ret && dev->mt76.otp.data) {

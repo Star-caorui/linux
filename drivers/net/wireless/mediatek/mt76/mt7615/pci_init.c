@@ -32,8 +32,12 @@ static void mt7615_pci_init_work(struct work_struct *work)
 
 static int mt7615_init_hardware(struct mt7615_dev *dev)
 {
-	u32 addr = mt7615_reg_map(dev, MT_EFUSE_BASE);
 	int ret, idx;
+	u32 addr = 0;
+
+	/* MT6833: no efuse, and no remap window to reach it through */
+	if (!is_mt6833(&dev->mt76))
+		addr = mt7615_reg_map(dev, MT_EFUSE_BASE);
 
 	mt76_wr(dev, MT_INT_SOURCE_CSR, ~0);
 
@@ -42,7 +46,11 @@ static int mt7615_init_hardware(struct mt7615_dev *dev)
 	if (ret < 0)
 		return ret;
 
-	if (is_mt7663(&dev->mt76)) {
+	ret = mt6833_wmac_init(dev);
+	if (ret < 0)
+		return ret;
+
+	if (is_mt7663(&dev->mt76) && !is_mt6833(&dev->mt76)) {
 		/* Reset RGU */
 		mt76_clear(dev, MT_MCU_CIRQ_IRQ_SEL(4), BIT(1));
 		mt76_set(dev, MT_MCU_CIRQ_IRQ_SEL(4), BIT(1));
@@ -74,7 +82,7 @@ int mt7615_register_device(struct mt7615_dev *dev)
 	INIT_WORK(&dev->reset_work, mt7615_mac_reset_work);
 
 	/* init led callbacks */
-	if (IS_ENABLED(CONFIG_MT76_LEDS)) {
+	if (IS_ENABLED(CONFIG_MT76_LEDS) && !is_mt6833(&dev->mt76)) {
 		dev->mphy.leds.cdev.brightness_set = mt7615_led_set_brightness;
 		dev->mphy.leds.cdev.blink_set = mt7615_led_set_blink;
 	}

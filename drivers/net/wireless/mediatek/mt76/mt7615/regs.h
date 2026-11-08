@@ -161,6 +161,9 @@ enum mt7615_reg_base {
 
 #define MT_CSR(ofs)			((dev)->reg_map[MT_CSR_BASE] + (ofs))
 #define MT_CONN_HIF_ON_LPCTL		MT_CSR(0x000)
+/* MT6833: lets the WMAC's interrupt out to the host (PCIe chips: MT_PCIE_IRQ_ENABLE) */
+#define MT_CONN_HIF_ON_IRQ_ENA		MT_CSR(0x008)
+#define MT_CONN_HIF_ON_IRQ_ENA_HOST	BIT(0)
 
 #define MT_PLE(ofs)			((dev)->reg_map[MT_PLE_BASE] + (ofs))
 

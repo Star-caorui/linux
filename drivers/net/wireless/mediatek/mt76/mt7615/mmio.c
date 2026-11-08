@@ -163,8 +163,9 @@ static u32 mt7615_rmw(struct mt76_dev *mdev, u32 offset, u32 mask, u32 val)
 	return dev->bus_ops->rmw(mdev, addr, mask, val);
 }
 
+/* rev: the chip id and revision, or 0 to read them from the chip */
 int mt7615_mmio_probe(struct device *pdev, void __iomem *mem_base,
-		      int irq, const u32 *map)
+		      int irq, const u32 *map, u32 rev)
 {
 	static const struct mt76_driver_ops drv_ops = {
 		/* txwi_size = txd size + txp size */
@@ -204,8 +205,12 @@ int mt7615_mmio_probe(struct device *pdev, void __iomem *mem_base,
 
 	dev->reg_map = map;
 	dev->ops = ops;
-	mdev->rev = (mt76_rr(dev, MT_HW_CHIPID) << 16) |
-		    (mt76_rr(dev, MT_HW_REV) & 0xff);
+	dev->rxd_dw4 = -1;
+	if (rev)
+		mdev->rev = rev;
+	else
+		mdev->rev = (mt76_rr(dev, MT_HW_CHIPID) << 16) |
+			    (mt76_rr(dev, MT_HW_REV) & 0xff);
 	dev_dbg(mdev->dev, "ASIC revision: %04x\n", mdev->rev);
 
 	dev->bus_ops = dev->mt76.bus;
@@ -228,7 +233,9 @@ int mt7615_mmio_probe(struct device *pdev, void __iomem *mem_base,
 	if (ret)
 		goto err_free_dev;
 
-	if (is_mt7663(mdev))
+	if (is_mt6833(mdev))
+		mt76_wr(dev, MT_CONN_HIF_ON_IRQ_ENA, MT_CONN_HIF_ON_IRQ_ENA_HOST);
+	else if (is_mt7663(mdev))
 		mt76_wr(dev, MT_PCIE_IRQ_ENABLE, 1);
 
 	ret = mt7615_register_device(dev);
@@ -256,14 +263,29 @@ static int __init mt7615_init(void)
 	if (IS_ENABLED(CONFIG_MT7622_WMAC)) {
 		ret = platform_driver_register(&mt7622_wmac_driver);
 		if (ret)
-			pci_unregister_driver(&mt7615_pci_driver);
+			goto err_pci;
 	}
 
+	if (IS_ENABLED(CONFIG_MT6833_WMAC)) {
+		ret = platform_driver_register(&mt6833_wmac_driver);
+		if (ret)
+			goto err_mt7622;
+	}
+
+	return 0;
+
+err_mt7622:
+	if (IS_ENABLED(CONFIG_MT7622_WMAC))
+		platform_driver_unregister(&mt7622_wmac_driver);
+err_pci:
+	pci_unregister_driver(&mt7615_pci_driver);
 	return ret;
 }
 
 static void __exit mt7615_exit(void)
 {
+	if (IS_ENABLED(CONFIG_MT6833_WMAC))
+		platform_driver_unregister(&mt6833_wmac_driver);
 	if (IS_ENABLED(CONFIG_MT7622_WMAC))
 		platform_driver_unregister(&mt7622_wmac_driver);
 	pci_unregister_driver(&mt7615_pci_driver);

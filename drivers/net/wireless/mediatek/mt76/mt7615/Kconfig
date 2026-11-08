@@ -29,6 +29,17 @@ config MT7622_WMAC
 	  which has the same feature set as a MT7615, but limited to
 	  2.4 GHz only.
 
+config MT6833_WMAC
+	bool "MT6833 (SoC) WMAC support"
+	depends on MT7615E
+	depends on ARCH_MEDIATEK || COMPILE_TEST
+	depends on BT_MTKCONN=y || (BT_MTKCONN=m && MT7615E=m)
+	help
+	  This adds support for the Wi-Fi of MediaTek's MT6833 (Dimensity 700)
+	  connsys: an MT7663 core, 1x1 802.11ac, on the SoC's bus. Connsys,
+	  which it shares with Bluetooth, is powered and calibrated by the
+	  connsys driver before it can start.
+
 config MT7663_USB_SDIO_COMMON
 	tristate
 	select MT7615_COMMON

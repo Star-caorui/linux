@@ -51,6 +51,14 @@
 #define MT7663_ROM_PATCH		"mediatek/mt7663pr2h_rebb.bin"
 #define MT7663_FIRMWARE_N9		"mediatek/mt7663_n9_rebb.bin"
 
+/* connsys with A-die MT6631; the MT6635 one would be WIFI_RAM_CODE_soc2_2_1a_1.bin */
+#define MT6833_FIRMWARE_N9		"WIFI_RAM_CODE_soc2_2_1_1.bin"
+/* the board's calibration: nvdata's WIFI file without its 2-byte checksum */
+#define MT6833_NVRAM			"mt6833-wifi-nvram.bin"
+#define MT6833_NVRAM_SIZE		2048
+/* the connsys CPU sees its reserved memory (EMI) at this address */
+#define MT6833_EMI_BASE			0xf0000000
+
 #define MT7615_EEPROM_SIZE		1024
 #define MT7663_EEPROM_SIZE		1536
 #define MT7615_TOKEN_SIZE		4096
@@ -286,6 +294,11 @@ struct mt7615_dev {
 
 	struct mt76_connac_pm pm;
 	struct mt76_connac_coredump coredump;
+
+	/* MT6833: the NVRAM file's data, sent to the firmware at start */
+	u8 *nvram;
+	/* MT6833: receive descriptors have a fifth word (learnt from the first event) */
+	s8 rxd_dw4;
 };
 
 enum tx_pkt_queue_idx {
@@ -356,6 +369,7 @@ extern const u32 mt7663e_reg_map[__MT_BASE_MAX];
 extern const u32 mt7663_usb_sdio_reg_map[__MT_BASE_MAX];
 extern struct pci_driver mt7615_pci_driver;
 extern struct platform_driver mt7622_wmac_driver;
+extern struct platform_driver mt6833_wmac_driver;
 extern const struct mt76_testmode_ops mt7615_testmode_ops;
 
 #ifdef CONFIG_MT7622_WMAC
@@ -369,7 +383,15 @@ static inline int mt7622_wmac_init(struct mt7615_dev *dev)
 
 int mt7615_thermal_init(struct mt7615_dev *dev);
 int mt7615_mmio_probe(struct device *pdev, void __iomem *mem_base,
-		      int irq, const u32 *map);
+		      int irq, const u32 *map, u32 rev);
+#ifdef CONFIG_MT6833_WMAC
+int mt6833_wmac_init(struct mt7615_dev *dev);
+#else
+static inline int mt6833_wmac_init(struct mt7615_dev *dev)
+{
+	return 0;
+}
+#endif
 u32 mt7615_reg_map(struct mt7615_dev *dev, u32 addr);
 
 u32 mt7615_reg_map(struct mt7615_dev *dev, u32 addr);
