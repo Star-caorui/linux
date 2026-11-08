@@ -212,6 +212,31 @@
 		#size-cells = <2>;
 		ranges;
 
+		/*
+		 * LK's devinfo, its copy of the efuse words (which read as zeros from the
+		 * normal world), at the offsets of the stock kernel's mtk-devinfo; whatever
+		 * starts the kernel puts the words in memory and gives this node its reg
+		 */
+		devinfo: devinfo {
+			compatible = "mediatek,lk-devinfo", "nvmem-rmem";
+			no-map;
+
+			nvmem-layout {
+				compatible = "fixed-layout";
+				#address-cells = <1>;
+				#size-cells = <1>;
+
+				/* the efuse's words 0x1c0 to 0x1cc and 0x1d0 to 0x214 */
+				lvts_devinfo_1: lvts-calib@1d0 {
+					reg = <0x1d0 0x10>;
+				};
+
+				lvts_devinfo_2: lvts-calib@2f8 {
+					reg = <0x2f8 0x48>;
+				};
+			};
+		};
+
 		aee-debug-kinfo@48080000 {
 			reg = <0x0 0x48080000 0 0x10000>;
 			no-map;
@@ -1000,6 +1025,11 @@
 	debounce-delay-ms = <32>;
 	linux,keymap = <MATRIX_KEY(0, 0, KEY_VOLUMEDOWN)>;
 	status = "okay";
+};
+
+&lvts {
+	nvmem-cells = <&lvts_devinfo_1>, <&lvts_devinfo_2>;
+	nvmem-cell-names = "lvts-calib-data-1", "lvts-calib-data-2";
 };
 
 &mfg0 {
