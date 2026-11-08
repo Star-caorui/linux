@@ -29,6 +29,7 @@
 #define MT6360_REG_PHYCTRL11	0xCA
 #define MT6360_REG_RXCTRL1	0xCE
 #define MT6360_REG_RXCTRL2	0xCF
+#define MT6360_REG_VBUSCTRL2	0xDA
 #define MT6360_REG_CTDCTRL2	0xEC
 
 /* MT6360_REG_VCONNCTRL1 */
@@ -93,6 +94,11 @@ static int mt6360_tcpc_init(struct tcpci *tcpci, struct tcpci_data *tdata)
 	/* Enable VCONN Current Limit function */
 	ret = regmap_update_bits(regmap, MT6360_REG_VCONNCTRL1, MT6360_VCONNCL_ENABLE,
 				 MT6360_VCONNCL_ENABLE);
+	if (ret)
+		return ret;
+
+	/* CC high/low comparator filter: 250 us, as MediaTek's driver sets it */
+	ret = regmap_write(regmap, MT6360_REG_VBUSCTRL2, 0xAA);
 	if (ret)
 		return ret;
 
