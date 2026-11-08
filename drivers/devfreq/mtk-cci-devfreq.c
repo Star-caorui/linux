@@ -408,6 +408,14 @@ static void mtk_ccifreq_remove(struct platform_device *pdev)
 		regulator_disable(drv->sram_reg);
 }
 
+static const struct mtk_ccifreq_platform_data mt6833_platform_data = {
+	.min_volt_shift = 100000,
+	.max_volt_shift = 250000,
+	.proc_max_volt = 1050000,
+	.sram_min_volt = 750000,
+	.sram_max_volt = 1050000,
+};
+
 static const struct mtk_ccifreq_platform_data mt8183_platform_data = {
 	.min_volt_shift = 100000,
 	.max_volt_shift = 200000,
@@ -423,6 +431,7 @@ static const struct mtk_ccifreq_platform_data mt8186_platform_data = {
 };
 
 static const struct of_device_id mtk_ccifreq_machines[] = {
+	{ .compatible = "mediatek,mt6833-cci", .data = &mt6833_platform_data },
 	{ .compatible = "mediatek,mt8183-cci", .data = &mt8183_platform_data },
 	{ .compatible = "mediatek,mt8186-cci", .data = &mt8186_platform_data },
 	{ },
