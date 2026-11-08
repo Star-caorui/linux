@@ -814,6 +814,19 @@ process_status:
 }
 EXPORT_SYMBOL_GPL(tcpci_irq);
 
+/**
+ * tcpci_unmask_alerts - let the TCPC raise the alerts the port handles
+ * @tcpci: the port, from tcpci_register_port()
+ *
+ * tcpci_register_port() leaves every alert masked. Drivers call this once
+ * their interrupt handler is in place.
+ */
+int tcpci_unmask_alerts(struct tcpci *tcpci)
+{
+	return tcpci_write16(tcpci, TCPC_ALERT_MASK, tcpci->alert_mask);
+}
+EXPORT_SYMBOL_GPL(tcpci_unmask_alerts);
+
 static irqreturn_t _tcpci_irq(int irq, void *dev_id)
 {
 	struct tcpci_chip *chip = dev_id;

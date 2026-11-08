@@ -171,6 +171,12 @@ static int mt6360_tcpc_probe(struct platform_device *pdev)
 		return ret;
 	}
 
+	ret = tcpci_unmask_alerts(mti->tcpci);
+	if (ret) {
+		tcpci_unregister_port(mti->tcpci);
+		return ret;
+	}
+
 	device_init_wakeup(&pdev->dev, true);
 	platform_set_drvdata(pdev, mti);
 
