@@ -19,6 +19,7 @@ properties:
   compatible:
     oneOf:
       - enum:
+          - mediatek,mt6833-cci
           - mediatek,mt8183-cci
           - mediatek,mt8186-cci
       - items:
