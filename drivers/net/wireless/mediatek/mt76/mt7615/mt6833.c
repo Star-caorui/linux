@@ -16,6 +16,7 @@
 
 #include <linux/dma-mapping.h>
 #include <linux/firmware.h>
+#include <linux/iopoll.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/of.h>
@@ -69,6 +70,32 @@ int mt6833_wmac_init(struct mt7615_dev *dev)
 	return 0;
 }
 
+/*
+ * The host owns the WMAC (driver own) or the firmware does (firmware own, where it may sleep).
+ * After connsys' power-on it is the firmware's, and while it is, the host's writes to the PDMA
+ * do not stick: take it before mt76 sets up the rings (mt76 only does in mt7615_mcu_init(), on
+ * PCIe chips that come up owned by the host), as MediaTek's wlanAdapterStart() does first.
+ */
+static int mt6833_drv_own(struct device *dev, void __iomem *base)
+{
+	u32 val = readl(base + MT6833_LPCTL);
+	int ret;
+
+	dev_dbg(dev, "LPCTL %08x at probe\n", val);
+	writel(MT_CFG_LPCR_HOST_DRV_OWN, base + MT6833_LPCTL);
+	ret = readl_poll_timeout(base + MT6833_LPCTL, val, !(val & MT_CFG_LPCR_HOST_FW_OWN),
+				 100, 100 * USEC_PER_MSEC);
+	if (ret)
+		dev_err(dev, "no driver own (LPCTL %08x)\n", val);
+	return ret;
+}
+
+/* back to the state of connsys' power-on: also when the firmware never started */
+static void mt6833_fw_own(void __iomem *base)
+{
+	writel(MT_CFG_LPCR_HOST_FW_OWN, base + MT6833_LPCTL);
+}
+
 static int mt6833_wmac_probe(struct platform_device *pdev)
 {
 	struct mtk_connsys *cs;
@@ -97,9 +124,19 @@ static int mt6833_wmac_probe(struct platform_device *pdev)
 	if (ret)
 		return dev_err_probe(&pdev->dev, ret, "connsys power-on\n");
 
+	ret = mt6833_drv_own(&pdev->dev, mem_base);
+	if (ret)
+		goto err_power_off;
+
 	ret = mt7615_mmio_probe(&pdev->dev, mem_base, irq, mt7663e_reg_map, 0x6833 << 16);
 	if (ret)
-		mtk_connsys_power_off(cs);
+		goto err_fw_own;
+	return 0;
+
+err_fw_own:
+	mt6833_fw_own(mem_base);
+err_power_off:
+	mtk_connsys_power_off(cs);
 	return ret;
 }
 
@@ -107,8 +144,10 @@ static void mt6833_wmac_remove(struct platform_device *pdev)
 {
 	struct mt7615_dev *dev = platform_get_drvdata(pdev);
 	struct mtk_connsys *cs = mt6833_connsys(&pdev->dev);
+	void __iomem *base = dev->mt76.mmio.regs;
 
 	mt7615_unregister_device(dev);
+	mt6833_fw_own(base);
 	if (!IS_ERR(cs))
 		mtk_connsys_power_off(cs);
 }

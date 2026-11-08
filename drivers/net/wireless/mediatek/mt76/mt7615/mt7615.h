@@ -56,6 +56,8 @@
 /* the board's calibration: nvdata's WIFI file without its 2-byte checksum */
 #define MT6833_NVRAM			"mt6833-wifi-nvram.bin"
 #define MT6833_NVRAM_SIZE		2048
+/* CONN_HIF_ON_LPCTL (MT_CONN_HIF_ON_LPCTL), for use before the register map is set up */
+#define MT6833_LPCTL			0x7000
 /* the connsys CPU sees its reserved memory (EMI) at this address */
 #define MT6833_EMI_BASE			0xf0000000
 
