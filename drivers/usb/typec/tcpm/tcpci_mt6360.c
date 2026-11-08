@@ -10,7 +10,9 @@
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/platform_device.h>
+#include <linux/property.h>
 #include <linux/regmap.h>
+#include <linux/regulator/consumer.h>
 #include <linux/usb/tcpci.h>
 #include <linux/usb/tcpm.h>
 
@@ -40,6 +42,8 @@ struct mt6360_tcpc_info {
 	struct tcpci_data tdata;
 	struct tcpci *tcpci;
 	struct device *dev;
+	struct regulator *vbus;
+	bool vbus_on;
 	int irq;
 };
 
@@ -129,6 +133,27 @@ static int mt6360_tcpc_init(struct tcpci *tcpci, struct tcpci_data *tdata)
 	return regmap_write(regmap, MT6360_REG_MODECTRL2, 0x7A);
 }
 
+/*
+ * The TCPC does not drive VBUS itself: switch the connector's VBUS supply (the charger's OTG
+ * boost), then let tcpci send the usual VBUS commands.
+ */
+static int mt6360_tcpc_set_vbus(struct tcpci *tcpci, struct tcpci_data *tdata, bool source,
+				bool sink)
+{
+	struct mt6360_tcpc_info *mti = container_of(tdata, struct mt6360_tcpc_info, tdata);
+	int ret;
+
+	if (source == mti->vbus_on)
+		return 0;
+
+	ret = source ? regulator_enable(mti->vbus) : regulator_disable(mti->vbus);
+	if (ret)
+		return ret;
+
+	mti->vbus_on = source;
+	return 0;
+}
+
 static irqreturn_t mt6360_irq(int irq, void *dev_id)
 {
 	struct mt6360_tcpc_info *mti = dev_id;
@@ -139,6 +164,7 @@ static irqreturn_t mt6360_irq(int irq, void *dev_id)
 static int mt6360_tcpc_probe(struct platform_device *pdev)
 {
 	struct mt6360_tcpc_info *mti;
+	struct fwnode_handle *connector;
 	int ret;
 
 	mti = devm_kzalloc_obj(&pdev->dev, *mti);
@@ -157,7 +183,23 @@ static int mt6360_tcpc_probe(struct platform_device *pdev)
 	if (mti->irq < 0)
 		return mti->irq;
 
+	connector = device_get_named_child_node(&pdev->dev, "connector");
+	if (connector) {
+		mti->vbus = devm_of_regulator_get_optional(&pdev->dev, to_of_node(connector),
+							   "vbus");
+		fwnode_handle_put(connector);
+		if (IS_ERR(mti->vbus)) {
+			ret = PTR_ERR(mti->vbus);
+			if (ret != -ENODEV)
+				return dev_err_probe(&pdev->dev, ret,
+						     "Failed to get VBUS supply\n");
+			mti->vbus = NULL;
+		}
+	}
+
 	mti->tdata.init = mt6360_tcpc_init;
+	if (mti->vbus)
+		mti->tdata.set_vbus = mt6360_tcpc_set_vbus;
 	mti->tcpci = tcpci_register_port(&pdev->dev, &mti->tdata);
 	if (IS_ERR(mti->tcpci)) {
 		dev_err(&pdev->dev, "Failed to register tcpci port\n");
