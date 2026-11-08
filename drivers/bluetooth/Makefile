@@ -55,3 +55,4 @@ btusb-y				:= btusb_main.o
 btusb-$(CONFIG_BT_HCIBTUSB_QCOM)	+= btusb_qcom.o
 
 CONTEXT_ANALYSIS := y
+obj-$(CONFIG_BT_MTKCONN)	+= btmtkconn.o

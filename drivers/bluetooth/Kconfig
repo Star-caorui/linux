@@ -412,6 +412,13 @@ config BT_MTKSDIO
 	  Say Y here to compile support for MediaTek Bluetooth SDIO devices
 	  into the kernel or say M to compile it as module (btmtksdio).
 
+config BT_MTKCONN
+	tristate "MediaTek MT6833 connsys Bluetooth (prototype)"
+	depends on BT_HCIUART && SERIAL_DEV_BUS
+	select BT_HCIUART_H4
+	help
+	  Bluetooth on MediaTek MT6833 connsys over BTIF. A prototype.
+
 config BT_MTKUART
 	tristate "MediaTek HCI UART driver"
 	depends on BT_HCIUART

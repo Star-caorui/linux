@@ -1201,3 +1201,78 @@
 		};
 	};
 };
+
+/* connsys Bluetooth (btmtkconn prototype) */
+/ {
+	reserved-memory {
+		/* as the stock tree: allocated at boot, so the shim leaves it alone */
+		consys_mem: consys-reserve-memory {
+			no-map;
+			size = <0 0x500000>;
+			alignment = <0 0x1000000>;
+			alloc-ranges = <0 0x40000000 0 0x80000000>;
+		};
+	};
+
+	/* register ranges only, for btmtkconn */
+	connsys: connsys@18002000 {
+		reg = <0 0x18002000 0 0x1000>,
+		      <0 0x10007000 0 0x100>,
+		      <0 0x10001000 0 0x1000>,
+		      <0 0x10006000 0 0x1000>,
+		      <0 0x180b1000 0 0x1000>,
+		      <0 0x180c1000 0 0x1000>,
+		      <0 0x10003000 0 0x1000>,
+		      <0 0x10005000 0 0x1000>,
+		      <0 0x11ea0000 0 0x100>,
+		      <0 0x1100c000 0 0x100>,
+		      <0 0x1000f800 0 0x100>,
+		      <0 0x18007000 0 0x1000>;
+	};
+
+	btif: serial@1100c000 {
+		compatible = "mediatek,mtk-btif";
+		reg = <0 0x1100c000 0 0x1000>;
+		interrupts = <GIC_SPI 158 IRQ_TYPE_LEVEL_HIGH 0>;
+		clocks = <&infracfg_ao CLK_IFRAO_BTIF>;
+		clock-names = "main";
+		reg-shift = <2>;
+		reg-io-width = <4>;
+
+		bluetooth {
+			compatible = "mediatek,mt6833-bluetooth";
+			mediatek,connsys = <&connsys>;
+			power-domains = <&spm MT6833_POWER_DOMAIN_CONN>;
+			clocks = <&infracfg_ao CLK_IFRAO_CCIF4_AP>;
+			clock-names = "ccif";
+			vcn18-supply = <&mt6359p_vcn18_reg>;
+			vcn33-1-supply = <&mt6359p_vcn33_1_reg>;
+			vcn33-2-supply = <&mt6359p_vcn33_2_reg>;
+			memory-region = <&consys_mem>;
+		};
+	};
+};
+
+&spm {
+	power-domain@MT6833_POWER_DOMAIN_CONN {
+		reg = <MT6833_POWER_DOMAIN_CONN>;
+		mediatek,infracfg = <&infracfg_ao>;
+		#power-domain-cells = <0>;
+	};
+};
+
+&pmic {
+	regulators {
+		mt6359p_vcn33_1_reg: ldo_vcn33_1 {
+			regulator-name = "vcn33_1";
+			regulator-min-microvolt = <2800000>;
+			regulator-max-microvolt = <3500000>;
+		};
+
+		mt6359p_vcn33_2_reg: ldo_vcn33_2 {
+			regulator-name = "vcn33_2";
+			regulator-min-microvolt = <2800000>;
+			regulator-max-microvolt = <3500000>;
+		};
+	};
+};
