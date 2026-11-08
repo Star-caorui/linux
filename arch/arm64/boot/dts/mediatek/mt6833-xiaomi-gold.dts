@@ -125,6 +125,17 @@
 		mode-bootloader = <1>;
 	};
 
+	/*
+	 * The vibration motor on the MT6359P's VIBR LDO, as the stock kernel drives it: 3 V at
+	 * full strength, 2 V the weakest it uses (the motor barely turns below that).
+	 */
+	vibrator {
+		compatible = "regulator-haptic";
+		haptic-supply = <&mt6359p_vibr_reg>;
+		min-microvolt = <2000000>;
+		max-microvolt = <3000000>;
+	};
+
 	chosen {
 		#address-cells = <2>;
 		#size-cells = <2>;
@@ -754,10 +765,11 @@
 				regulator-settling-time-us = <50>;
 			};
 
+			/* the vibration motor's: the stock kernel uses 2-3 V */
 			mt6359p_vibr_reg: ldo_vibr {
 				regulator-name = "vibr";
-				regulator-min-microvolt = <1200000>;
-				regulator-max-microvolt = <3300000>;
+				regulator-min-microvolt = <2000000>;
+				regulator-max-microvolt = <3000000>;
 			};
 
 			/* Pulls the battery thermistor up */
