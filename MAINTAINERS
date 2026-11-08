@@ -11145,6 +11145,13 @@ S:	Maintained
 F:	Documentation/devicetree/bindings/media/i2c/galaxycore,gc08a3.yaml
 F:	drivers/media/i2c/gc08a3.c
 
+GALAXYCORE GC16B3 CAMERA SENSOR DRIVER
+M:	Rui Cao <i@udp0.com>
+L:	linux-media@vger.kernel.org
+S:	Maintained
+F:	Documentation/devicetree/bindings/media/i2c/galaxycore,gc16b3.yaml
+F:	drivers/media/i2c/gc16b3.c
+
 GALAXYCORE GC2145 SENSOR DRIVER
 M:	Alain Volmat <alain.volmat@foss.st.com>
 L:	linux-media@vger.kernel.org
