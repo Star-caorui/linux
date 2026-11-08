@@ -861,9 +861,10 @@
 		};
 
 		/*
-		 * The rear flash: both flash channels, with the stock kernel's limits (it may
-		 * drive them together). The indicator current sinks are left out: gold has no
-		 * indicator LED.
+		 * The rear flash: one LED, on the first flash channel, with the stock kernel's
+		 * limits. The stock tree describes the second channel too (MediaTek's reference
+		 * dual colour temperature setup), but nothing lights on it. The indicator current
+		 * sinks are left out: gold has no indicator LED.
 		 */
 		led-controller {
 			compatible = "mediatek,mt6360-led";
@@ -874,17 +875,6 @@
 				reg = <4>;
 				function = LED_FUNCTION_FLASH;
 				color = <LED_COLOR_ID_WHITE>;
-				function-enumerator = <1>;
-				led-max-microamp = <400000>;
-				flash-max-microamp = <1500000>;
-				flash-max-timeout-us = <1248000>;
-			};
-
-			led@5 {
-				reg = <5>;
-				function = LED_FUNCTION_FLASH;
-				color = <LED_COLOR_ID_WHITE>;
-				function-enumerator = <2>;
 				led-max-microamp = <400000>;
 				flash-max-microamp = <1500000>;
 				flash-max-timeout-us = <1248000>;
