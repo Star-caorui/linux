@@ -1,0 +1,69 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/clock/mediatek,mt6833-sys-clock.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: MediaTek System Clock Controllers for MT6833
+
+maintainers:
+  - Rui Cao <i@udp0.com>
+
+description:
+  The MediaTek system clock controllers provide the PLLs (apmixedsys), the
+  clock muxes and dividers (topckgen) and the infrastructure clock gates
+  and resets (infracfg_ao) of the MT6833. The clock IDs are in
+  include/dt-bindings/clock/mediatek,mt6833-clk.h and the reset IDs in
+  include/dt-bindings/reset/mediatek,mt6833-resets.h.
+
+properties:
+  compatible:
+    items:
+      - enum:
+          - mediatek,mt6833-apmixedsys
+          - mediatek,mt6833-infracfg-ao
+          - mediatek,mt6833-topckgen
+      - const: syscon
+
+  reg:
+    maxItems: 1
+
+  '#clock-cells':
+    const: 1
+
+  '#reset-cells':
+    const: 1
+
+required:
+  - compatible
+  - reg
+  - '#clock-cells'
+
+allOf:
+  - if:
+      properties:
+        compatible:
+          not:
+            contains:
+              const: mediatek,mt6833-infracfg-ao
+    then:
+      properties:
+        '#reset-cells': false
+
+additionalProperties: false
+
+examples:
+  - |
+    topckgen: syscon@10000000 {
+        compatible = "mediatek,mt6833-topckgen", "syscon";
+        reg = <0x10000000 0x1000>;
+        #clock-cells = <1>;
+    };
+
+  - |
+    infracfg_ao: syscon@10001000 {
+        compatible = "mediatek,mt6833-infracfg-ao", "syscon";
+        reg = <0x10001000 0x1000>;
+        #clock-cells = <1>;
+        #reset-cells = <1>;
+    };
