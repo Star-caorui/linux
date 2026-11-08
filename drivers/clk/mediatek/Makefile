@@ -51,7 +51,8 @@ obj-$(CONFIG_COMMON_CLK_MT2712_MFGCFG) += clk-mt2712-mfg.o
 obj-$(CONFIG_COMMON_CLK_MT2712_MMSYS) += clk-mt2712-mm.o
 obj-$(CONFIG_COMMON_CLK_MT2712_VDECSYS) += clk-mt2712-vdec.o
 obj-$(CONFIG_COMMON_CLK_MT2712_VENCSYS) += clk-mt2712-venc.o
-obj-$(CONFIG_COMMON_CLK_MT6833) += clk-mt6833-apmixedsys.o clk-mt6833.o
+obj-$(CONFIG_COMMON_CLK_MT6833) += clk-mt6833-apmixedsys.o clk-mt6833.o \
+				   clk-mt6833-mcu.o
 obj-$(CONFIG_COMMON_CLK_MT6833_AUDSYS) += clk-mt6833-aud.o
 obj-$(CONFIG_COMMON_CLK_MT6833_CAMSYS) += clk-mt6833-cam.o
 obj-$(CONFIG_COMMON_CLK_MT6833_IMGSYS) += clk-mt6833-img.o
