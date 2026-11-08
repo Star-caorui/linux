@@ -126,6 +126,15 @@
 	};
 
 	/*
+	 * The infrared LED, driven by the SoC's PWM 1 on GPIO136 (the stock kernel sends with
+	 * that channel in its memory mode).
+	 */
+	ir-led {
+		compatible = "pwm-ir-tx";
+		pwms = <&pwm 1 26316>;
+	};
+
+	/*
 	 * The vibration motor on the MT6359P's VIBR LDO, as the stock kernel drives it: 3 V at
 	 * full strength, 2 V the weakest it uses (the motor barely turns below that).
 	 */
@@ -640,6 +649,12 @@
 		};
 	};
 
+	ir_pins: ir-pins {
+		pins-pwm {
+			pinmux = <PINMUX_GPIO136__FUNC_PWM_1>;
+		};
+	};
+
 	keypad_pins: keypad-pins {
 		pins-col0 {
 			pinmux = <PINMUX_GPIO79__FUNC_KPCOL0>;
@@ -673,6 +688,12 @@
 			drive-strength = <8>;
 		};
 	};
+};
+
+&pwm {
+	pinctrl-names = "default";
+	pinctrl-0 = <&ir_pins>;
+	status = "okay";
 };
 
 &pwrap {
