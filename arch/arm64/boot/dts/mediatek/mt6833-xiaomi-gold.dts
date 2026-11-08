@@ -820,6 +820,29 @@
 	pinctrl-names = "default";
 	pinctrl-0 = <&i2c4_pins>;
 	status = "okay";
+
+	/* GC16B3 (Sunny module; some phones have an OV16A1Q instead) */
+	camera@10 {
+		compatible = "galaxycore,gc16b3";
+		reg = <0x10>;
+		clocks = <&topckgen CLK_TOP_CAMTG_SEL>;
+		assigned-clocks = <&topckgen CLK_TOP_CAMTG_SEL>;
+		assigned-clock-parents = <&topckgen CLK_TOP_UNIVPLL_192M_D8>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&cam_front_pins>;
+		reset-gpios = <&pio 54 GPIO_ACTIVE_LOW>;
+		dovdd-supply = <&mt6359p_vcamio_reg>;
+		dvdd-supply = <&cam_dvdd2>;
+		avdd-supply = <&cam_avdd2>;
+		orientation = <0>;
+
+		port {
+			cam_front_out: endpoint {
+				data-lanes = <1 2 3 4>;
+				link-frequencies = /bits/ 64 <181200000>;
+			};
+		};
+	};
 };
 
 &i2c5 {
@@ -988,6 +1011,28 @@
 	pinctrl-names = "default";
 	pinctrl-0 = <&i2c7_pins>;
 	status = "okay";
+
+	pmic@28 {
+		compatible = "willsemi,wl2866d";
+		reg = <0x28>;
+
+		regulators {
+			/* the front, depth and macro cameras' */
+			cam_dvdd2: dvdd2 {
+				regulator-name = "cam_dvdd2";
+				regulator-min-microvolt = <1200000>;
+				regulator-max-microvolt = <1200000>;
+				regulator-active-discharge = <1>;
+			};
+
+			cam_avdd2: avdd2 {
+				regulator-name = "cam_avdd2";
+				regulator-min-microvolt = <2800000>;
+				regulator-max-microvolt = <2800000>;
+				regulator-active-discharge = <1>;
+			};
+		};
+	};
 };
 
 &i2c8 {
@@ -996,6 +1041,28 @@
 	pinctrl-names = "default";
 	pinctrl-0 = <&i2c8_pins>;
 	status = "okay";
+
+	/* SC202CS, monochrome, for depth (on phones without an ultra-wide camera) */
+	camera@36 {
+		compatible = "smartsens,sc202cs";
+		reg = <0x36>;
+		clocks = <&topckgen CLK_TOP_CAMTG4_SEL>;
+		assigned-clocks = <&topckgen CLK_TOP_CAMTG4_SEL>;
+		assigned-clock-parents = <&topckgen CLK_TOP_UNIVPLL_192M_D8>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&cam_depth_pins>;
+		reset-gpios = <&pio 60 GPIO_ACTIVE_LOW>;
+		dovdd-supply = <&mt6359p_vcamio_reg>;
+		avdd-supply = <&cam_avdd2>;
+		orientation = <1>;
+
+		port {
+			cam_depth_out: endpoint {
+				data-lanes = <1>;
+				link-frequencies = /bits/ 64 <360000000>;
+			};
+		};
+	};
 };
 
 &i2c9 {
@@ -1053,6 +1120,20 @@
 };
 
 &pio {
+	cam_depth_pins: cam-depth-pins {
+		pins-mclk {
+			pinmux = <PINMUX_GPIO52__FUNC_CMMCLK3>;
+			drive-strength = <8>;
+		};
+	};
+
+	cam_front_pins: cam-front-pins {
+		pins-mclk {
+			pinmux = <PINMUX_GPIO49__FUNC_CMMCLK0>;
+			drive-strength = <4>;
+		};
+	};
+
 	i2c1_pins: i2c1-pins {
 		pins-bus {
 			pinmux = <PINMUX_GPIO99__FUNC_SCL1>,
@@ -1352,8 +1433,8 @@
 
 			mt6359p_vcamio_reg: ldo_vcamio {
 				regulator-name = "vcamio";
-				regulator-min-microvolt = <1700000>;
-				regulator-max-microvolt = <1900000>;
+				regulator-min-microvolt = <1800000>;
+				regulator-max-microvolt = <1800000>;
 			};
 
 			mt6359p_vcn18_reg: ldo_vcn18 {
