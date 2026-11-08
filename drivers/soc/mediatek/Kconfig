@@ -79,6 +79,17 @@ config MTK_SVS
 	  chip process corner, temperatures and other factors. Then DVFS
 	  driver could apply SVS bank voltage to PMIC/Buck.
 
+config MTK_CPU_HOTPLUG
+	bool "MediaTek CPU power-off after hotplug"
+	depends on ARM64 && HOTPLUG_CPU && HAVE_ARM_SMCCC
+	default ARCH_MEDIATEK
+	help
+	  On SoCs whose firmware runs the CPU power controller in automatic
+	  mode (MT6833), PSCI CPU_OFF leaves the core's power request set and
+	  a later CPU_ON never completes. Tell the firmware to drop the power
+	  request once a CPU is dead, so that it can be brought back online
+	  (needed for CPU hotplug and suspend).
+
 config MTK_SOCINFO
 	tristate "MediaTek SoC Information"
 	default y
