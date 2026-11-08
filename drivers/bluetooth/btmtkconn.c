@@ -123,6 +123,7 @@ struct btmtkconn {
 	/* STP receive */
 	u8 hdr[4];
 	unsigned int hdr_len, type, len, got, tail;
+	unsigned int log_cnt;		/* STP_LOG packets */
 	u8 *buf;
 	struct sk_buff *rx_skb;
 
@@ -243,7 +244,12 @@ static void stp_frame(struct btmtkconn *bc)
 		complete(&bc->wmt_done);
 		break;
 	case STP_LOG:
-		bt_dev_err(bc->hdev, "firmware: %.*s", bc->len, bc->buf);
+		/* an assert message, then the core dump: the first ones to the log */
+		if (bc->log_cnt++ < 32)
+			bt_dev_err(bc->hdev, "firmware (%u): %*pE", bc->log_cnt,
+				   min_t(int, bc->len, 512), bc->buf);
+		else if (!(bc->log_cnt % 256))
+			bt_dev_err(bc->hdev, "firmware: %u messages", bc->log_cnt);
 		break;
 	default:
 		bt_dev_dbg(bc->hdev, "STP type %u, %u bytes", bc->type, bc->len);
@@ -278,7 +284,12 @@ static size_t btmtkconn_receive_buf(struct serdev_device *serdev, const u8 *data
 			bc->type = bc->hdr[1] >> 4;
 			bc->len = ((bc->hdr[1] & 0xf) << 8) | bc->hdr[2];
 			bc->got = 0;
-			if (bc->hdr[3] || bc->len > STP_MAX) {
+			/*
+			 * the fourth byte is 0, or a checksum: the firmware's assert messages
+			 * (STP_LOG) come with one
+			 */
+			if ((bc->hdr[3] && bc->hdr[3] != (u8)(bc->hdr[0] + bc->hdr[1] + bc->hdr[2])) ||
+			    bc->len > STP_MAX) {
 				bt_dev_err(bc->hdev, "bad STP header %*ph", 4, bc->hdr);
 				bc->hdr_len = 0;
 			} else if (!bc->len) {
