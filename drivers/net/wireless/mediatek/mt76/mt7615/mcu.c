@@ -597,6 +597,7 @@ void mt7615_mcu_rx_event(struct mt7615_dev *dev, struct sk_buff *skb)
 	    rxd->eid == MCU_EVENT_SCAN_DONE ||
 	    rxd->eid == MCU_EVENT_COREDUMP ||
 	    rxd->eid == MCU_EVENT_ROC ||
+	    (is_mt6833(&dev->mt76) && rxd->eid == MT6833_EVENT_SLEEPY_INFO) ||
 	    !rxd->seq)
 		mt7615_mcu_rx_unsolicited_event(dev, skb);
 	else
@@ -1225,6 +1226,88 @@ mt7615_mcu_sta_uni_update_hdr_trans(struct mt7615_dev *dev,
 						    MCU_UNI_CMD(STA_REC_UPDATE));
 }
 
+/*
+ * MT6833: its firmware (CONNAC 1, MediaTek's gen4m with legacy commands) knows none of the unified
+ * commands: it does not answer UNI DEV_INFO_UPDATE and raises an exception later. gen4m activates
+ * a BSS with CMD_ID_BSS_ACTIVATE_CTRL (0x11); BSS info, station records and block ack go through
+ * CMD_ID_SET_BSS_INFO (0x12) and CMD_ID_UPDATE_STA_RECORD (0x13), which are not done yet: what
+ * needs them (association, AP mode) fails cleanly instead of reaching the firmware.
+ */
+static int mt6833_mcu_bss_activate(struct mt7615_phy *phy, struct ieee80211_vif *vif,
+				   bool enable)
+{
+	struct mt7615_vif *mvif = (struct mt7615_vif *)vif->drv_priv;
+	struct {
+		u8 bss_idx;
+		u8 active;
+		u8 network_type;	/* 0: station (AIS), 1: P2P and AP */
+		u8 omac_idx;
+		u8 addr[ETH_ALEN];
+		u8 bmc_wlan_idx;	/* the WTBL entry for broadcast and management frames */
+		u8 rsv;
+	} __packed req = {
+		.bss_idx = mvif->mt76.idx,
+		.active = enable,
+		.network_type = vif->type == NL80211_IFTYPE_STATION && !vif->p2p ? 0 : 1,
+		.omac_idx = mvif->mt76.omac_idx,
+		.bmc_wlan_idx = mvif->sta.wcid.idx,
+	};
+
+	ether_addr_copy(req.addr, vif->addr);
+
+	return mt76_mcu_send_msg(&phy->dev->mt76, MCU_CE_CMD(BSS_ACTIVATE_CTRL), &req,
+				 sizeof(req), false);
+}
+
+static int mt6833_mcu_add_bss(struct mt7615_phy *phy, struct ieee80211_vif *vif,
+			      struct ieee80211_sta *sta, bool enable)
+{
+	return enable ? -EOPNOTSUPP : 0;
+}
+
+static int mt6833_mcu_add_sta(struct mt7615_phy *phy, struct ieee80211_vif *vif,
+			      struct ieee80211_sta *sta, bool enable)
+{
+	return enable ? -EOPNOTSUPP : 0;
+}
+
+static int mt6833_mcu_ba(struct mt7615_dev *dev, struct ieee80211_ampdu_params *params,
+			 bool enable)
+{
+	return enable ? -EOPNOTSUPP : 0;
+}
+
+static int mt6833_mcu_add_beacon(struct mt7615_dev *dev, struct ieee80211_hw *hw,
+				 struct ieee80211_vif *vif, bool enable)
+{
+	return enable ? -EOPNOTSUPP : 0;
+}
+
+/* power save is the firmware's own (it reports EVENT_ID_SLEEPY_INFO) */
+static int mt6833_mcu_set_pm_state(struct mt7615_dev *dev, int band, int state)
+{
+	return 0;
+}
+
+static int mt6833_mcu_decap_offload(struct mt7615_dev *dev, struct ieee80211_vif *vif,
+				    struct ieee80211_sta *sta)
+{
+	return -EOPNOTSUPP;
+}
+
+static const struct mt7615_mcu_ops mt6833_update_ops = {
+	.add_beacon_offload = mt6833_mcu_add_beacon,
+	.set_pm_state = mt6833_mcu_set_pm_state,
+	.add_dev_info = mt6833_mcu_bss_activate,
+	.add_bss_info = mt6833_mcu_add_bss,
+	.add_tx_ba = mt6833_mcu_ba,
+	.add_rx_ba = mt6833_mcu_ba,
+	.sta_add = mt6833_mcu_add_sta,
+	.set_drv_ctrl = mt7615_mcu_lp_drv_pmctrl,
+	.set_fw_ctrl = mt7615_mcu_fw_pmctrl,
+	.set_sta_decap_offload = mt6833_mcu_decap_offload,
+};
+
 static const struct mt7615_mcu_ops uni_update_ops = {
 	.add_beacon_offload = mt7615_mcu_uni_add_beacon_offload,
 	.set_pm_state = mt7615_mcu_uni_ctrl_pm_state,
@@ -1774,7 +1857,7 @@ static int mt6833_load_firmware(struct mt7615_dev *dev)
 	}
 
 	dev->fw_ver = MT7615_FIRMWARE_V3;
-	dev->mcu_ops = &uni_update_ops;
+	dev->mcu_ops = &mt6833_update_ops;
 
 	mt76_set(dev, MT_WPDMA_GLO_CFG, MT_WPDMA_GLO_CFG_BYPASS_TX_SCH);
 
