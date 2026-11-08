@@ -12,10 +12,14 @@ maintainers:
 
 properties:
   compatible:
-    enum:
-      - mediatek,mt8183-ufshci
-      - mediatek,mt8192-ufshci
-      - mediatek,mt8195-ufshci
+    oneOf:
+      - enum:
+          - mediatek,mt8183-ufshci
+          - mediatek,mt8192-ufshci
+          - mediatek,mt8195-ufshci
+      - items:
+          - const: mediatek,mt6833-ufshci
+          - const: mediatek,mt8183-ufshci
 
   clocks:
     minItems: 1
@@ -31,7 +35,21 @@ properties:
   reg:
     maxItems: 1
 
+  resets:
+    maxItems: 3
+
+  reset-names:
+    items:
+      - const: hci_rst
+      - const: unipro_rst
+      - const: crypto_rst
+
   vcc-supply: true
+
+  mediatek,ufs-disable-ah8:
+    $ref: /schemas/types.yaml#/definitions/flag
+    description:
+      Keep the host's auto-hibernate (Auto-Hibern8) off.
 
   mediatek,ufs-disable-mcq:
     $ref: /schemas/types.yaml#/definitions/flag
@@ -41,7 +59,6 @@ required:
   - compatible
   - clocks
   - clock-names
-  - phys
   - reg
   - vcc-supply
 
@@ -49,6 +66,27 @@ unevaluatedProperties: false
 
 allOf:
   - $ref: ufs-common.yaml
+
+  - if:
+      properties:
+        compatible:
+          contains:
+            const: mediatek,mt6833-ufshci
+    then:
+      properties:
+        phys: false
+        clocks:
+          minItems: 4
+          maxItems: 4
+        clock-names:
+          items:
+            - const: ufs
+            - const: unipro_sysclk
+            - const: unipro_mp_bclk
+            - const: ufs_aes
+    else:
+      required:
+        - phys
 
   - if:
       properties:
@@ -70,7 +108,20 @@ allOf:
             - const: unipro_mp_bclk
             - const: ufs_tx_symbol
             - const: ufs_mem_sub
-    else:
+
+  - if:
+      properties:
+        compatible:
+          contains:
+            enum:
+              - mediatek,mt8183-ufshci
+              - mediatek,mt8192-ufshci
+      not:
+        properties:
+          compatible:
+            contains:
+              const: mediatek,mt6833-ufshci
+    then:
       properties:
         clocks:
           maxItems: 1
