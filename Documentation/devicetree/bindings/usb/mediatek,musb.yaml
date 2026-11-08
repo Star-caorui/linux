@@ -68,9 +68,27 @@ properties:
     description: Connector for dual role switch
     type: object
 
+  port:
+    $ref: /schemas/graph.yaml#/properties/port
+    description:
+      The data bus to a connector that is not a child of this controller,
+      such as a USB Type-C connector under its port controller, which then
+      switches the role.
+
 dependencies:
-  usb-role-switch: [ connector ]
   connector: [ usb-role-switch ]
+  port: [ usb-role-switch ]
+
+allOf:
+  - if:
+      required:
+        - usb-role-switch
+    then:
+      oneOf:
+        - required:
+            - connector
+        - required:
+            - port
 
 required:
   - compatible
