@@ -80,6 +80,12 @@ static int mtk_otg_switch_set(struct mtk_glue *glue, enum usb_role role)
 		if (glue->role == USB_ROLE_NONE)
 			phy_power_on(glue->phy);
 
+		/*
+		 * The controller takes its part, A or B device, from the ID level when the session
+		 * starts: have the PHY report the A device's level first. There may be no ID pin to
+		 * tell, as on a USB Type-C port.
+		 */
+		phy_set_mode(glue->phy, glue->phy_mode);
 		devctl |= MUSB_DEVCTL_SESSION;
 		musb_writeb(musb->mregs, MUSB_DEVCTL, devctl);
 		MUSB_HST_MODE(musb);
