@@ -472,26 +472,33 @@ static int mt6359_get_playback_volsw(struct snd_kcontrol *kcontrol,
 	struct soc_mixer_control *mc =
 			(struct soc_mixer_control *)kcontrol->private_value;
 
+	int gain[2];
+
 	switch (mc->reg) {
 	case MT6359_ZCD_CON2:
-		ucontrol->value.integer.value[0] =
-			priv->ana_gain[AUDIO_ANALOG_VOLUME_HPOUTL];
-		ucontrol->value.integer.value[1] =
-			priv->ana_gain[AUDIO_ANALOG_VOLUME_HPOUTR];
+		gain[0] = priv->ana_gain[AUDIO_ANALOG_VOLUME_HPOUTL];
+		gain[1] = priv->ana_gain[AUDIO_ANALOG_VOLUME_HPOUTR];
 		break;
 	case MT6359_ZCD_CON1:
-		ucontrol->value.integer.value[0] =
-			priv->ana_gain[AUDIO_ANALOG_VOLUME_LINEOUTL];
-		ucontrol->value.integer.value[1] =
-			priv->ana_gain[AUDIO_ANALOG_VOLUME_LINEOUTR];
+		gain[0] = priv->ana_gain[AUDIO_ANALOG_VOLUME_LINEOUTL];
+		gain[1] = priv->ana_gain[AUDIO_ANALOG_VOLUME_LINEOUTR];
 		break;
 	case MT6359_ZCD_CON3:
-		ucontrol->value.integer.value[0] =
-			priv->ana_gain[AUDIO_ANALOG_VOLUME_HSOUTL];
+		gain[0] = priv->ana_gain[AUDIO_ANALOG_VOLUME_HSOUTL];
+		gain[1] = gain[0];
 		break;
 	default:
 		return -EINVAL;
 	}
+
+	/*
+	 * The gain is kept as the register index, where 0 is the loudest
+	 * setting; the control counts the other way round.
+	 */
+	ucontrol->value.integer.value[0] = mc->max - min_t(int, gain[0], mc->max);
+	if (snd_soc_volsw_is_stereo(mc))
+		ucontrol->value.integer.value[1] =
+			mc->max - min_t(int, gain[1], mc->max);
 
 	return 0;
 }
@@ -2822,15 +2829,15 @@ static const DECLARE_TLV_DB_SCALE(capture_tlv, 0, 600, 0);
 static const struct snd_kcontrol_new mt6359_snd_controls[] = {
 	/* dl pga gain */
 	SOC_DOUBLE_EXT_TLV("Headset Volume",
-			   MT6359_ZCD_CON2, 0, 7, 0x12, 0,
+			   MT6359_ZCD_CON2, 0, 7, 0x12, 1,
 			   mt6359_get_playback_volsw, mt6359_put_volsw,
 			   playback_tlv),
 	SOC_DOUBLE_EXT_TLV("Lineout Volume",
-			   MT6359_ZCD_CON1, 0, 7, 0x12, 0,
+			   MT6359_ZCD_CON1, 0, 7, 0x12, 1,
 			   mt6359_get_playback_volsw, mt6359_put_volsw,
 			   playback_tlv),
 	SOC_SINGLE_EXT_TLV("Handset Volume",
-			   MT6359_ZCD_CON3, 0, 0x12, 0,
+			   MT6359_ZCD_CON3, 0, 0x12, 1,
 			   mt6359_get_playback_volsw, mt6359_put_volsw,
 			   playback_tlv),
 
