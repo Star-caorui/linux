@@ -4,7 +4,7 @@
 $id: http://devicetree.org/schemas/sound/mt8192-afe-pcm.yaml#
 $schema: http://devicetree.org/meta-schemas/core.yaml#
 
-title: Mediatek AFE PCM controller for mt8192
+title: Mediatek AFE PCM controller for mt8192 and mt6833
 
 maintainers:
   - Jiaxin Yu <jiaxin.yu@mediatek.com>
@@ -12,7 +12,9 @@ maintainers:
 
 properties:
   compatible:
-    const: mediatek,mt8192-audio
+    enum:
+      - mediatek,mt6833-audio
+      - mediatek,mt8192-audio
 
   interrupts:
     maxItems: 1
@@ -163,14 +165,22 @@ properties:
 required:
   - compatible
   - interrupts
-  - resets
-  - reset-names
   - mediatek,apmixedsys
   - mediatek,infracfg
   - mediatek,topckgen
   - power-domains
   - clocks
   - clock-names
+
+allOf:
+  - if:
+      properties:
+        compatible:
+          const: mediatek,mt8192-audio
+    then:
+      required:
+        - resets
+        - reset-names
 
 additionalProperties: false
 
