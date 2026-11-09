@@ -1611,7 +1611,7 @@
 			interrupts = <GIC_SPI 271 IRQ_TYPE_LEVEL_HIGH 0>;
 			clocks = <&mmsys CLK_MM_SMI_IOMMU>;
 			clock-names = "bclk";
-			mediatek,larbs = <&larb0>, <&larb1>;
+			mediatek,larbs = <&larb0>, <&larb1>, <&larb13>;
 			power-domains = <&spm MT6833_POWER_DOMAIN_DISP>;
 			#iommu-cells = <1>;
 			status = "disabled";
@@ -1647,6 +1647,17 @@
 			#clock-cells = <1>;
 		};
 
+		larb13: larb@1a001000 {
+			compatible = "mediatek,mt6833-smi-larb";
+			reg = <0 0x1a001000 0 0x1000>;
+			mediatek,larb-id = <13>;
+			mediatek,smi = <&smi_sub_common_cam0>;
+			clocks = <&camsys CLK_CAM_M_LARB13>, <&camsys CLK_CAM_M_LARB13>;
+			clock-names = "apb", "smi";
+			power-domains = <&spm MT6833_POWER_DOMAIN_CAM>;
+			status = "disabled";
+		};
+
 		seninf: seninf@1a004000 {
 			compatible = "mediatek,mt6833-seninf";
 			reg = <0 0x1a004000 0 0x6000>;
@@ -1679,6 +1690,17 @@
 			};
 		};
 
+		smi_sub_common_cam0: smi@1a00d000 {
+			compatible = "mediatek,mt6833-smi-sub-common";
+			reg = <0 0x1a00d000 0 0x1000>;
+			mediatek,smi = <&smi_common>;
+			clocks = <&camsys CLK_CAM_M_LARB13>, <&camsys CLK_CAM_M_LARB13>,
+				 <&camsys CLK_CAM_M_LARB13>;
+			clock-names = "apb", "smi", "gals0";
+			power-domains = <&spm MT6833_POWER_DOMAIN_CAM>;
+			status = "disabled";
+		};
+
 		camsys_rawa: clock-controller@1a04f000 {
 			compatible = "mediatek,mt6833-camsys-rawa";
 			reg = <0 0x1a04f000 0 0x1000>;
@@ -1699,6 +1721,7 @@
 				 <&camsys CLK_CAM_M_CAMTG>,
 				 <&camsys CLK_CAM_M_CAMSV1>;
 			clock-names = "cam", "camtg", "camsv";
+			iommus = <&iommu M4U_PORT_L13_CAM_CAMSV4>;
 			power-domains = <&spm MT6833_POWER_DOMAIN_CAM>;
 			status = "disabled";
 
