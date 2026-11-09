@@ -1,0 +1,144 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/media/mediatek,mt6833-seninf.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: MediaTek MT6833 sensor interface (SENINF)
+
+maintainers:
+  - Rui Cao <i@udp0.com>
+
+description:
+  The SENINF has six CSI-2 receivers, seninf1 to seninf6, each with a test
+  pattern generator, and 13 outputs (cam_mux) towards the raw ISPs (0 to 2)
+  and the camera DMA engines (3 and up, camsv). Receivers 1, 3 and 5 take the
+  A port of CSI port pair 0, 1 and 2, or the whole pair with more than two
+  data lanes; receivers 2, 4 and 6 take the B port.
+
+properties:
+  compatible:
+    const: mediatek,mt6833-seninf
+
+  reg:
+    maxItems: 1
+
+  clocks:
+    items:
+      - description: SENINF clock gate in camsys
+      - description: seninf_sel clock mux
+      - description: seninf1_sel clock mux
+      - description: seninf2_sel clock mux
+
+  clock-names:
+    items:
+      - const: camsys
+      - const: seninf
+      - const: seninf1
+      - const: seninf2
+
+  power-domains:
+    maxItems: 1
+
+  phys:
+    maxItems: 9
+
+  phy-names:
+    items:
+      - const: csi0
+      - const: csi0a
+      - const: csi0b
+      - const: csi1
+      - const: csi1a
+      - const: csi1b
+      - const: csi2
+      - const: csi2a
+      - const: csi2b
+
+  ports:
+    $ref: /schemas/graph.yaml#/properties/ports
+    description:
+      Ports 0 to 5 are the inputs of receivers seninf1 to seninf6, ports 6 to
+      18 the outputs cam_mux 0 to 12.
+
+    patternProperties:
+      "^port@[0-5]$":
+        $ref: /schemas/graph.yaml#/$defs/port-base
+        unevaluatedProperties: false
+
+        properties:
+          endpoint:
+            $ref: video-interfaces.yaml#
+            unevaluatedProperties: false
+
+            properties:
+              data-lanes:
+                minItems: 1
+                maxItems: 4
+
+            required:
+              - data-lanes
+
+      "^port@([6-9a-f]|1[0-2])$":
+        $ref: /schemas/graph.yaml#/properties/port
+
+required:
+  - compatible
+  - reg
+  - clocks
+  - clock-names
+  - power-domains
+  - phys
+  - phy-names
+  - ports
+
+additionalProperties: false
+
+examples:
+  - |
+    #include <dt-bindings/clock/mediatek,mt6833-clk.h>
+    #include <dt-bindings/power/mediatek,mt6833-power.h>
+
+    soc {
+        #address-cells = <2>;
+        #size-cells = <2>;
+
+        seninf@1a004000 {
+            compatible = "mediatek,mt6833-seninf";
+            reg = <0 0x1a004000 0 0x6000>;
+            clocks = <&camsys CLK_CAM_M_SENINF>,
+                     <&topckgen CLK_TOP_SENINF_SEL>,
+                     <&topckgen CLK_TOP_SENINF1_SEL>,
+                     <&topckgen CLK_TOP_SENINF2_SEL>;
+            clock-names = "camsys", "seninf", "seninf1", "seninf2";
+            power-domains = <&spm MT6833_POWER_DOMAIN_CAM>;
+            phys = <&csi0_rx 0>, <&csi0_rx 1>, <&csi0_rx 2>,
+                   <&csi1_rx 0>, <&csi1_rx 1>, <&csi1_rx 2>,
+                   <&csi2_rx 0>, <&csi2_rx 1>, <&csi2_rx 2>;
+            phy-names = "csi0", "csi0a", "csi0b",
+                        "csi1", "csi1a", "csi1b",
+                        "csi2", "csi2a", "csi2b";
+
+            ports {
+                #address-cells = <1>;
+                #size-cells = <0>;
+
+                port@1 {
+                    reg = <1>;
+
+                    endpoint {
+                        data-lanes = <1>;
+                        remote-endpoint = <&sensor_out>;
+                    };
+                };
+
+                port@b {
+                    reg = <11>;
+
+                    endpoint {
+                        remote-endpoint = <&camsv2_in>;
+                    };
+                };
+            };
+        };
+    };
