@@ -373,6 +373,17 @@ config COMMON_CLK_MT6797_VENCSYS
 	help
 	  This driver supports MediaTek MT6797 vencsys clocks.
 
+config COMMON_CLK_MT6833
+	tristate "Clock driver for MediaTek MT6833"
+	depends on ARM64 || COMPILE_TEST
+	select COMMON_CLK_MEDIATEK
+	default ARCH_MEDIATEK
+	help
+	  This driver supports the basic clocks of the MediaTek MT6833:
+	  the PLLs (apmixedsys), the dividers and muxes (topckgen) and
+	  the infrastructure clock gates and resets (infracfg_ao).
+	  Say Y here if you want to boot a kernel on an MT6833 device.
+
 config COMMON_CLK_MT7622
 	tristate "Clock driver for MediaTek MT7622"
 	depends on ARCH_MEDIATEK || COMPILE_TEST
