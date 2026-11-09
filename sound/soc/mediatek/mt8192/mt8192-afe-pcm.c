@@ -14,6 +14,7 @@
 #include <linux/of_address.h>
 #include <linux/of_reserved_mem.h>
 #include <linux/pm_runtime.h>
+#include <linux/property.h>
 #include <linux/reset.h>
 #include <sound/soc.h>
 
@@ -2159,13 +2160,31 @@ static const dai_register_cb dai_register_cbs[] = {
 	mt8192_dai_memif_register,
 };
 
+struct mt8192_afe_variant {
+	bool memif_32bit_supported;
+};
+
+static const struct mt8192_afe_variant mt6833_afe_variant = {
+	/* S32 runs the memif in a mode MT6833 plays back as noise */
+	.memif_32bit_supported = false,
+};
+
+static const struct mt8192_afe_variant mt8192_afe_variant = {
+	.memif_32bit_supported = true,
+};
+
 static int mt8192_afe_pcm_dev_probe(struct platform_device *pdev)
 {
+	const struct mt8192_afe_variant *variant;
 	struct mtk_base_afe *afe;
 	struct mt8192_afe_private *afe_priv;
 	struct device *dev = &pdev->dev;
 	struct reset_control *rstc;
 	int i, ret, irq_id;
+
+	variant = device_get_match_data(dev);
+	if (!variant)
+		return -EINVAL;
 
 	ret = dma_set_mask_and_coherent(dev, DMA_BIT_MASK(34));
 	if (ret)
@@ -2195,7 +2214,7 @@ static int mt8192_afe_pcm_dev_probe(struct platform_device *pdev)
 		return ret;
 
 	/* reset controller to reset audio regs before regmap cache */
-	rstc = devm_reset_control_get_exclusive(dev, "audiosys");
+	rstc = devm_reset_control_get_optional_exclusive(dev, "audiosys");
 	if (IS_ERR(rstc))
 		return dev_err_probe(dev, PTR_ERR(rstc), "could not get audiosys reset\n");
 
@@ -2288,7 +2307,7 @@ static int mt8192_afe_pcm_dev_probe(struct platform_device *pdev)
 	afe->irq_fs = mt8192_irq_fs;
 	afe->get_dai_fs = mt8192_get_dai_fs;
 	afe->get_memif_pbuf_size = mt8192_get_memif_pbuf_size;
-	afe->memif_32bit_supported = 1;
+	afe->memif_32bit_supported = variant->memif_32bit_supported;
 
 	afe->runtime_resume = mt8192_afe_runtime_resume;
 	afe->runtime_suspend = mt8192_afe_runtime_suspend;
@@ -2317,7 +2336,8 @@ static void mt8192_afe_pcm_dev_remove(struct platform_device *pdev)
 }
 
 static const struct of_device_id mt8192_afe_pcm_dt_match[] = {
-	{ .compatible = "mediatek,mt8192-audio", },
+	{ .compatible = "mediatek,mt6833-audio", .data = &mt6833_afe_variant },
+	{ .compatible = "mediatek,mt8192-audio", .data = &mt8192_afe_variant },
 	{},
 };
 MODULE_DEVICE_TABLE(of, mt8192_afe_pcm_dt_match);
