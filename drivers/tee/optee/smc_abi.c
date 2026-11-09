@@ -56,6 +56,25 @@
  */
 #define OPTEE_MIN_STATIC_POOL_ALIGN    9 /* 512 bytes aligned */
 
+/*
+ * Xiaomi's MiTEE ("xiaomi,mitee"), the trusted OS of gold (MT6833) and other Xiaomi MediaTek
+ * phones, speaks the OP-TEE SMC ABI as its vendor driver uses it: none of the discovery or shared
+ * memory cache calls (that driver keeps them compiled out), the static shared memory of
+ * GET_SHM_CONFIG, one call in secure world at a time, and an RPC that hands back in a3 the CPU the
+ * call has to be resumed on.
+ */
+#define MITEE_MAX_NOTIF_VALUE	0xffff
+
+static bool mitee_block_rpmb = true;
+module_param(mitee_block_rpmb, bool, 0444);
+MODULE_PARM_DESC(mitee_block_rpmb, "MiTEE: refuse its RPMB requests in the kernel");
+
+static bool mitee_trace = true;
+module_param(mitee_trace, bool, 0644);
+MODULE_PARM_DESC(mitee_trace, "MiTEE: log every RPC");
+
+static DEFINE_MUTEX(mitee_call_mutex);
+
 /* SMC ABI considers at most a single TEE firmware */
 static unsigned int pcpu_irq_num;
 
@@ -664,6 +683,12 @@ static void handle_rpc_func_cmd_shm_free(struct tee_context *ctx,
 	case OPTEE_RPC_SHM_TYPE_APPL:
 		optee_rpc_cmd_free_suppl(ctx, shm);
 		break;
+	case MITEE_RPC_SHM_TYPE_GLOBAL:
+		if (!((struct optee *)tee_get_drvdata(ctx->teedev))->mitee) {
+			arg->ret = TEEC_ERROR_BAD_PARAMETERS;
+			return;
+		}
+		fallthrough;
 	case OPTEE_RPC_SHM_TYPE_KERNEL:
 		tee_shm_free(shm);
 		break;
@@ -704,6 +729,12 @@ static void handle_rpc_func_cmd_shm_alloc(struct tee_context *ctx,
 	case OPTEE_RPC_SHM_TYPE_APPL:
 		shm = optee_rpc_cmd_alloc_suppl(ctx, sz);
 		break;
+	case MITEE_RPC_SHM_TYPE_GLOBAL:
+		if (!optee->mitee) {
+			arg->ret = TEEC_ERROR_BAD_PARAMETERS;
+			return;
+		}
+		fallthrough;
 	case OPTEE_RPC_SHM_TYPE_KERNEL:
 		shm = tee_shm_alloc_priv_buf(optee->ctx, sz);
 		break;
@@ -892,6 +923,8 @@ static int optee_smc_do_call_with_arg(struct tee_context *ctx,
 	struct optee_rpc_param param = { };
 	struct optee_call_ctx call_ctx = { };
 	struct optee_msg_arg *rpc_arg = NULL;
+	struct cpumask *mitee_mask = NULL;
+	bool mitee_moved = false;
 	int rc;
 
 	if (optee->rpc_param_count) {
@@ -925,6 +958,13 @@ static int optee_smc_do_call_with_arg(struct tee_context *ctx,
 			param.a0 = OPTEE_SMC_CALL_WITH_ARG;
 		reg_pair_from_64(&param.a1, &param.a2, parg);
 	}
+	if (optee->mitee) {
+		mitee_mask = kmalloc(cpumask_size(), GFP_KERNEL);
+		if (!mitee_mask)
+			return -ENOMEM;
+		cpumask_copy(mitee_mask, current->cpus_ptr);
+		mutex_lock(&mitee_call_mutex);
+	}
 	/* Initialize waiter */
 	optee_cq_wait_init(&optee->call_queue, &w, system_thread);
 	while (true) {
@@ -948,6 +988,21 @@ static int optee_smc_do_call_with_arg(struct tee_context *ctx,
 			param.a1 = res.a1;
 			param.a2 = res.a2;
 			param.a3 = res.a3;
+			/*
+			 * MiTEE: stay on (or move to) the CPU the RPC names
+			 * until the call is resumed there
+			 */
+			if (optee->mitee) {
+				if (optee->mitee_trace &&
+				    param.a3 != raw_smp_processor_id())
+					pr_info("mitee: rpc %#x on cpu %u, resume on cpu %u\n",
+						param.a0, raw_smp_processor_id(), param.a3);
+				if (param.a3 < nr_cpu_ids && cpu_online(param.a3) &&
+				    !set_cpus_allowed_ptr(current, cpumask_of(param.a3)))
+					mitee_moved = true;
+				else
+					pr_warn("mitee: cannot move to cpu %u\n", param.a3);
+			}
 			optee_handle_rpc(ctx, rpc_arg, &param, &call_ctx);
 		} else {
 			rc = res.a0;
@@ -961,6 +1016,13 @@ static int optee_smc_do_call_with_arg(struct tee_context *ctx,
 	 * thread waiters wake up one.
 	 */
 	optee_cq_wait_final(&optee->call_queue, &w);
+
+	if (optee->mitee) {
+		mutex_unlock(&mitee_call_mutex);
+		if (mitee_moved)
+			set_cpus_allowed_ptr(current, mitee_mask);
+		kfree(mitee_mask);
+	}
 
 	return rc;
 }
@@ -1518,7 +1580,7 @@ static void optee_smc_remove(struct platform_device *pdev)
 	 * reference counters and also avoid wild pointers in secure world
 	 * into the old shared memory range.
 	 */
-	if (!optee->rpc_param_count)
+	if (!optee->rpc_param_count && !optee->mitee)
 		optee_disable_shm_cache(optee);
 
 	optee_smc_notif_uninit_irq(optee);
@@ -1542,7 +1604,7 @@ static void optee_shutdown(struct platform_device *pdev)
 {
 	struct optee *optee = platform_get_drvdata(pdev);
 
-	if (!optee->rpc_param_count)
+	if (!optee->rpc_param_count && !optee->mitee)
 		optee_disable_shm_cache(optee);
 }
 
@@ -1739,11 +1801,24 @@ static int optee_probe(struct platform_device *pdev)
 	u32 max_notif_value;
 	u32 arg_cache_flags;
 	u32 sec_caps;
+	bool mitee;
 	int rc;
+
+	mitee = of_device_is_compatible(pdev->dev.of_node, "xiaomi,mitee");
 
 	invoke_fn = get_invoke_func(&pdev->dev);
 	if (IS_ERR(invoke_fn))
 		return PTR_ERR(invoke_fn);
+
+	if (mitee) {
+		/* what MiTEE's vendor driver assumes instead of asking */
+		pr_info("MiTEE: no discovery calls, static shared memory only\n");
+		sec_caps = OPTEE_SMC_SEC_CAP_HAVE_RESERVED_SHM;
+		thread_count = 0;
+		max_notif_value = MITEE_MAX_NOTIF_VALUE;
+		rpc_param_count = 0;
+		goto config_shm;
+	}
 
 	rc = optee_load_fw(pdev, invoke_fn);
 	if (rc)
@@ -1766,6 +1841,8 @@ static int optee_probe(struct platform_device *pdev)
 		pr_warn("capabilities mismatch\n");
 		return -EINVAL;
 	}
+
+config_shm:
 
 	/*
 	 * Try to use dynamic shared memory if possible
@@ -1822,8 +1899,12 @@ static int optee_probe(struct platform_device *pdev)
 		goto err_free_shm_pool;
 	}
 
-	optee_msg_get_os_revision(invoke_fn, &optee->revision);
+	if (!mitee)
+		optee_msg_get_os_revision(invoke_fn, &optee->revision);
 
+	optee->mitee = mitee;
+	optee->mitee_block_rpmb = mitee_block_rpmb;
+	optee->mitee_trace = mitee_trace;
 	optee->ops = &optee_ops;
 	optee->smc.invoke_fn = invoke_fn;
 	optee->smc.sec_caps = sec_caps;
@@ -1896,13 +1977,14 @@ static int optee_probe(struct platform_device *pdev)
 	 * kexec booting from an older kernel that did not properly cleanup the
 	 * shm cache.
 	 */
-	optee_disable_unmapped_shm_cache(optee);
+	if (!mitee)
+		optee_disable_unmapped_shm_cache(optee);
 
 	/*
 	 * Only enable the shm cache in case we're not able to pass the RPC
 	 * arg struct right after the normal arg struct.
 	 */
-	if (!optee->rpc_param_count)
+	if (!optee->rpc_param_count && !mitee)
 		optee_enable_shm_cache(optee);
 
 	if (optee->smc.sec_caps & OPTEE_SMC_SEC_CAP_DYNAMIC_SHM)
@@ -1916,11 +1998,17 @@ static int optee_probe(struct platform_device *pdev)
 	if (rc)
 		goto err_disable_shm_cache;
 
+	INIT_WORK(&optee->rpmb_scan_bus_work, optee_bus_scan_rpmb);
+	if (mitee) {
+		/* no pseudo TA to enumerate devices with */
+		pr_info("MiTEE: initialized driver\n");
+		return 0;
+	}
+
 	rc = optee_enumerate_devices(PTA_CMD_GET_DEVICES);
 	if (rc)
 		goto err_disable_shm_cache;
 
-	INIT_WORK(&optee->rpmb_scan_bus_work, optee_bus_scan_rpmb);
 	optee->rpmb_intf.notifier_call = optee_rpmb_intf_rdev;
 	blocking_notifier_chain_register(&optee_rpmb_intf_added,
 					 &optee->rpmb_intf);
@@ -1928,7 +2016,7 @@ static int optee_probe(struct platform_device *pdev)
 	return 0;
 
 err_disable_shm_cache:
-	if (!optee->rpc_param_count)
+	if (!optee->rpc_param_count && !mitee)
 		optee_disable_shm_cache(optee);
 	optee_smc_notif_uninit_irq(optee);
 	optee_unregister_devices();
@@ -1956,6 +2044,7 @@ err_free_shm_pool:
 
 static const struct of_device_id optee_dt_match[] = {
 	{ .compatible = "linaro,optee-tz" },
+	{ .compatible = "xiaomi,mitee" },
 	{},
 };
 MODULE_DEVICE_TABLE(of, optee_dt_match);

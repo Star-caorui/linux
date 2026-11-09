@@ -408,9 +408,63 @@ out:
 	rpmb_dev_put(rdev);
 }
 
+static void mitee_trace_rpc(const struct optee_msg_arg *arg)
+{
+	size_t n;
+
+	pr_info("mitee: rpc cmd %u, %u params\n", arg->cmd, arg->num_params);
+	for (n = 0; n < arg->num_params && n < 4; n++) {
+		const struct optee_msg_param *mp = arg->params + n;
+		u64 type = mp->attr & OPTEE_MSG_ATTR_TYPE_MASK;
+
+		if (type >= OPTEE_MSG_ATTR_TYPE_VALUE_INPUT &&
+		    type <= OPTEE_MSG_ATTR_TYPE_VALUE_INOUT)
+			pr_info("mitee:   [%zu] attr %#llx value %#llx %#llx %#llx\n", n,
+				mp->attr, mp->u.value.a, mp->u.value.b, mp->u.value.c);
+		else
+			pr_info("mitee:   [%zu] attr %#llx size %#llx\n", n, mp->attr,
+				mp->u.tmem.size);
+	}
+}
+
+/*
+ * Xiaomi's MiTEE: its vendor driver handles in the kernel only the RPCs OP-TEE's kernel drivers
+ * handled when it forked (time, wait queue, suspend, shared memory) and hands every other one,
+ * MiTEE's own among them, to its supplicant. Returns false for those handled as OP-TEE's.
+ */
+static bool mitee_rpc_cmd(struct tee_context *ctx, struct optee *optee,
+			  struct optee_msg_arg *arg)
+{
+	if (optee->mitee_trace)
+		mitee_trace_rpc(arg);
+
+	switch (arg->cmd) {
+	case OPTEE_RPC_CMD_GET_TIME:
+	case OPTEE_RPC_CMD_NOTIFICATION:
+	case OPTEE_RPC_CMD_SUSPEND:
+		return false;
+	case MITEE_RPC_CMD_RPMB:
+		if (optee->mitee_block_rpmb) {
+			pr_info("mitee: RPMB request refused\n");
+			arg->ret_origin = TEEC_ORIGIN_COMMS;
+			arg->ret = TEEC_ERROR_NOT_SUPPORTED;
+			return true;
+		}
+		fallthrough;
+	default:
+		handle_rpc_supp_cmd(ctx, optee, arg);
+		if (optee->mitee_trace)
+			pr_info("mitee: rpc cmd %u returns %#x\n", arg->cmd, arg->ret);
+		return true;
+	}
+}
+
 void optee_rpc_cmd(struct tee_context *ctx, struct optee *optee,
 		   struct optee_msg_arg *arg)
 {
+	if (optee->mitee && mitee_rpc_cmd(ctx, optee, arg))
+		return;
+
 	switch (arg->cmd) {
 	case OPTEE_RPC_CMD_GET_TIME:
 		handle_rpc_func_cmd_get_time(arg);

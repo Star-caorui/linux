@@ -165,6 +165,18 @@
 		};
 	};
 
+	firmware {
+		/*
+		 * Xiaomi's MiTEE, the trusted OS the bootloader starts (TF-A's SPD for it is
+		 * Trusty's); its shared memory is the tee-shm reservation below, which it reports
+		 * itself
+		 */
+		optee {
+			compatible = "xiaomi,mitee";
+			method = "smc";
+		};
+	};
+
 	memory@40000000 {
 		device_type = "memory";
 		reg = <0 0x40000000 0x1 0x80000000>;

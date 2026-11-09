@@ -276,7 +276,17 @@ struct optee {
 	struct work_struct scan_bus_work;
 	struct work_struct rpmb_scan_bus_work;
 	struct optee_revision revision;
+	bool mitee;
+	bool mitee_block_rpmb;
+	bool mitee_trace;
 };
+
+/*
+ * Xiaomi's MiTEE: the RPCs its vendor driver handles in the kernel beyond OP-TEE's (the rest go
+ * to the supplicant), and the RPC that reaches the RPMB through the supplicant.
+ */
+#define MITEE_RPC_CMD_RPMB		1
+#define MITEE_RPC_SHM_TYPE_GLOBAL	2
 
 struct optee_session {
 	struct list_head list_node;
