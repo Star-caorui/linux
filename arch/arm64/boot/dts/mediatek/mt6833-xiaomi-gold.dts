@@ -715,6 +715,10 @@
 	status = "okay";
 };
 
+&larb13 {
+	status = "okay";
+};
+
 &cci {
 	operating-points-v2 = <&cci_opp>;
 	proc-supply = <&mt6359p_vproc2_reg>;
@@ -1619,6 +1623,10 @@
 };
 
 /* The stock software leaves this bus to the SCP, as SCP_SPI2; see i2c1 */
+&smi_sub_common_cam0 {
+	status = "okay";
+};
+
 &seninf {
 	status = "okay";
 
