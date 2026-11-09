@@ -696,11 +696,44 @@
 		};
 	};
 
+	/*
+	 * Everything goes through the MT6359 codec: the earpiece on its handset output, the
+	 * headset on HPL/HPR and AIN1, the main microphone on AIN0, the second one on AIN3, and
+	 * the speaker amplifier on line out L, as in the stock audio_device.xml.
+	 */
+	sound: sound {
+		compatible = "mediatek,mt6833-mt6359-sound";
+		model = "Xiaomi Redmi Note 13 5G";
+		mediatek,platform = <&afe>;
+		mediatek,accdet = <&accdet>;
+		aux-devs = <&speaker_amp>;
+		audio-routing =
+			"Headphone", "Headphone L",
+			"Headphone", "Headphone R",
+			"AIN1", "Headset Mic",
+			"Earpiece", "Receiver",
+			"Speaker Amp IN", "LINEOUT L",
+			"Speaker", "Speaker Amp OUT";
+		pinctrl-names = "aud_clk_mosi_off", "aud_clk_mosi_on",
+				"aud_dat_mosi_off", "aud_dat_mosi_on",
+				"aud_dat_miso_off", "aud_dat_miso_on";
+		pinctrl-0 = <&aud_clk_mosi_off_pins>;
+		pinctrl-1 = <&aud_clk_mosi_on_pins>;
+		pinctrl-2 = <&aud_dat_mosi_off_pins>;
+		pinctrl-3 = <&aud_dat_mosi_on_pins>;
+		pinctrl-4 = <&aud_dat_miso_off_pins>;
+		pinctrl-5 = <&aud_dat_miso_on_pins>;
+	};
+
 	thermal-zones {
 		battery-thermal {
 			thermal-sensors = <&battery_ntc>;
 		};
 	};
+};
+
+&afe {
+	status = "okay";
 };
 
 /*
@@ -988,6 +1021,17 @@
 	pinctrl-names = "default";
 	pinctrl-0 = <&i2c7_pins>;
 	status = "okay";
+
+	/*
+	 * A SIA8159 (chip ID 0x61), switched over I2C only: the stock tree names GPIO16 as its
+	 * enable but sets si,si_pa_disable_pin, so nothing drives it. The stock dtbo also has an
+	 * AW87xxx at 0x5b for other builds; this phone has none there.
+	 */
+	speaker_amp: audio-amplifier@29 {
+		compatible = "si-in,sia8159";
+		reg = <0x29>;
+		sound-name-prefix = "Speaker Amp";
+	};
 };
 
 &i2c8 {
@@ -1053,6 +1097,61 @@
 };
 
 &pio {
+	/* MTKAIF to the MT6359 codec, as in the stock tree; MISO2 (the third ADC) is unused */
+	aud_clk_mosi_off_pins: aud-clk-mosi-off-pins {
+		pins-clk {
+			pinmux = <PINMUX_GPIO152__FUNC_GPIO152>,
+				 <PINMUX_GPIO153__FUNC_GPIO153>;
+			input-enable;
+			bias-pull-down;
+		};
+	};
+
+	aud_clk_mosi_on_pins: aud-clk-mosi-on-pins {
+		pins-clk {
+			pinmux = <PINMUX_GPIO152__FUNC_AUD_CLK_MOSI>,
+				 <PINMUX_GPIO153__FUNC_AUD_SYNC_MOSI>;
+			input-schmitt-enable;
+			bias-disable;
+		};
+	};
+
+	aud_dat_mosi_off_pins: aud-dat-mosi-off-pins {
+		pins-dat {
+			pinmux = <PINMUX_GPIO154__FUNC_GPIO154>,
+				 <PINMUX_GPIO155__FUNC_GPIO155>;
+			input-enable;
+			bias-pull-down;
+		};
+	};
+
+	aud_dat_mosi_on_pins: aud-dat-mosi-on-pins {
+		pins-dat {
+			pinmux = <PINMUX_GPIO154__FUNC_AUD_DAT_MOSI0>,
+				 <PINMUX_GPIO155__FUNC_AUD_DAT_MOSI1>;
+			input-schmitt-enable;
+			bias-disable;
+		};
+	};
+
+	aud_dat_miso_off_pins: aud-dat-miso-off-pins {
+		pins-dat {
+			pinmux = <PINMUX_GPIO159__FUNC_GPIO159>,
+				 <PINMUX_GPIO160__FUNC_GPIO160>;
+			input-enable;
+			bias-pull-down;
+		};
+	};
+
+	aud_dat_miso_on_pins: aud-dat-miso-on-pins {
+		pins-dat {
+			pinmux = <PINMUX_GPIO159__FUNC_AUD_DAT_MISO0>,
+				 <PINMUX_GPIO160__FUNC_AUD_DAT_MISO1>;
+			input-schmitt-enable;
+			bias-disable;
+		};
+	};
+
 	i2c1_pins: i2c1-pins {
 		pins-bus {
 			pinmux = <PINMUX_GPIO99__FUNC_SCL1>,
@@ -1381,6 +1480,14 @@
 				regulator-always-on;
 			};
 
+			/* the codec takes it by this name */
+			mt6359p_vaud18_reg: ldo_vaud18 {
+				regulator-name = "vaud18";
+				regulator-min-microvolt = <1800000>;
+				regulator-max-microvolt = <1800000>;
+				regulator-enable-ramp-delay = <240>;
+			};
+
 			mt6359p_vsram_others_reg: ldo_vsram_others {
 				regulator-name = "vsram_others";
 				regulator-min-microvolt = <500000>;
@@ -1519,6 +1626,32 @@
 			home-key {
 				linux,keycodes = <KEY_VOLUMEUP>;
 			};
+		};
+
+		/* The stock accdet settings; the PMIC EINT0, triggered from its inverter */
+		accdet: accdet {
+			compatible = "mediatek,mt6359-accdet";
+			io-channels = <&pmic_adc MT6359_AUXADC_ACCDET>;
+			io-channel-names = "pmic_accdet";
+			mediatek,mic-vol = <8>;
+			mediatek,plugout-debounce = <1>;
+			mediatek,mic-mode = <2>;
+			mediatek,pwm-deb-setting = <0x500 0x500 0x1 0x1f0 0x800 0x800 0x20 0x44
+						    0x4 0x1 0x5 0x3 0x3 0x5 0xe>;
+			mediatek,eint-num = <0>;
+			mediatek,eint-trig-mode = <1>;
+			mediatek,eint-use-ext-res = <0>;
+			mediatek,key-mode = <0>;
+			mediatek,three-key-thr = <0 80 220 400>;
+		};
+
+		/* All three analog microphones are DC coupled, the vendor driver's default */
+		audio-codec {
+			compatible = "mediatek,mt6359-codec";
+			mediatek,dmic-mode = <0>;
+			mediatek,mic-type-0 = <3>;
+			mediatek,mic-type-1 = <3>;
+			mediatek,mic-type-2 = <3>;
 		};
 	};
 };
