@@ -1535,6 +1535,8 @@ patternProperties:
     description: Shiratech Solutions
   "^si-en,.*":
     description: Si-En Technology Ltd.
+  "^si-in,.*":
+    description: Shanghai Si-In Microelectronics Co., Ltd.
   "^si-linux,.*":
     description: Silicon Linux Corporation
   "^sielaff,.*":
