@@ -1,0 +1,47 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/sound/si-in,sia8159.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: SI-IN SIA8159 speaker amplifier
+
+maintainers:
+  - Rui Cao <i@udp0.com>
+
+description:
+  The SIA8159 is a class-D/K mono speaker amplifier with an analog line
+  level input. It is switched on and off and set up over I2C; it has no
+  digital audio interface.
+
+allOf:
+  - $ref: dai-common.yaml#
+
+properties:
+  compatible:
+    const: si-in,sia8159
+
+  reg:
+    maxItems: 1
+
+  sound-name-prefix: true
+
+required:
+  - compatible
+  - reg
+
+unevaluatedProperties: false
+
+examples:
+  - |
+    i2c {
+        #address-cells = <1>;
+        #size-cells = <0>;
+
+        audio-amplifier@29 {
+            compatible = "si-in,sia8159";
+            reg = <0x29>;
+            sound-name-prefix = "Speaker Amp";
+        };
+    };
+...
