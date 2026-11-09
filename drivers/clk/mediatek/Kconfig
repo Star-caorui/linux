@@ -404,6 +404,16 @@ config COMMON_CLK_MT6833_MCUSYS
 	  The MediaTek CPU frequency scaling and CCI devfreq drivers
 	  need them.
 
+config COMMON_CLK_MT6833_MFGCFG
+	tristate "Clock driver for MediaTek MT6833 mfgcfg"
+	depends on COMMON_CLK_MT6833
+	default COMMON_CLK_MT6833
+	help
+	  This driver supports the MediaTek MT6833 mfgcfg clocks, which
+	  gate the clock of the GPU. Say Y or M here if you want to use
+	  the Mali GPU of an MT6833 device and scale its frequency.
+	  The GPU power domains must be on to reach these registers.
+
 config COMMON_CLK_MT7622
 	tristate "Clock driver for MediaTek MT7622"
 	depends on ARCH_MEDIATEK || COMPILE_TEST
