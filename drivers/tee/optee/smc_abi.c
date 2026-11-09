@@ -1913,6 +1913,12 @@ config_shm:
 		optee_msg_get_os_revision(invoke_fn, &optee->revision);
 
 	optee->mitee = mitee;
+	/*
+	 * MiTEE: no device enumeration, here or when the supplicant opens its
+	 * device (a session with the kernel's login to a pseudo TA it lacks)
+	 */
+	optee->scan_bus_done = mitee;
+	optee->rpmb_scan_bus_done = mitee;
 	optee->mitee_block_rpmb = mitee_block_rpmb;
 	optee->mitee_trace = mitee_trace;
 	optee->ops = &optee_ops;
