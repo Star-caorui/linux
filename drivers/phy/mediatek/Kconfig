@@ -94,6 +94,18 @@ config PHY_MTK_MIPI_CSI_0_5
 	  To compile this driver as a module, choose M here: the
 	  module will be called phy-mtk-mipi-csi-0-5.
 
+config PHY_MTK_MIPI_CSI_MT6833
+	tristate "MediaTek MT6833 MIPI CSI-2 receiver D-PHY driver"
+	depends on ARCH_MEDIATEK || COMPILE_TEST
+	depends on OF
+	select GENERIC_PHY
+	help
+	  Enable this to support the MIPI CSI-2 receiver D-PHYs of the
+	  MediaTek MT6833, which feed its sensor interface (SENINF).
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called phy-mtk-mipi-csi-mt6833.
+
 config PHY_MTK_MIPI_DSI
 	tristate "MediaTek MIPI-DSI Driver"
 	depends on ARCH_MEDIATEK || COMPILE_TEST
