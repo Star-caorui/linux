@@ -2798,6 +2798,16 @@ static int mt6359_codec_init_reg(struct snd_soc_component *cmpnt)
 	/* hp hifi mode, default normal mode */
 	priv->hp_hifi_mode = 0;
 
+	/*
+	 * Start the playback gains at the lowest step of their controls
+	 * rather than at register value 0, which is the loudest (+8 dB).
+	 */
+	priv->ana_gain[AUDIO_ANALOG_VOLUME_HPOUTL] = DL_GAIN_N_10DB;
+	priv->ana_gain[AUDIO_ANALOG_VOLUME_HPOUTR] = DL_GAIN_N_10DB;
+	priv->ana_gain[AUDIO_ANALOG_VOLUME_LINEOUTL] = DL_GAIN_N_10DB;
+	priv->ana_gain[AUDIO_ANALOG_VOLUME_LINEOUTR] = DL_GAIN_N_10DB;
+	priv->ana_gain[AUDIO_ANALOG_VOLUME_HSOUTL] = DL_GAIN_N_10DB;
+
 	/* Disable AUD_ZCD */
 	zcd_disable(priv);
 
