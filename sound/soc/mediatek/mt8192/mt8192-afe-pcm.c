@@ -6,6 +6,7 @@
 // Author: Shane Chien <shane.chien@mediatek.com>
 //
 
+#include <linux/clk.h>
 #include <linux/delay.h>
 #include <linux/dma-mapping.h>
 #include <linux/module.h>
@@ -2082,11 +2083,21 @@ static int mt8192_afe_runtime_suspend(struct device *dev)
 			   INNER_LOOP_BACK_MODE_MASK_SFT,
 			   0x3f << INNER_LOOP_BACK_MODE_SFT);
 
+	/*
+	 * Gate the AFE clock while the regmap still reaches the hardware: the
+	 * gate is written through it (see mt8192_afe_runtime_resume()).
+	 */
+	clk_disable_unprepare(afe_priv->clk[CLK_AFE]);
+
 	/* cache only */
 	regcache_cache_only(afe->regmap, true);
 	regcache_mark_dirty(afe->regmap);
 
+	mt8192_afe_disable_clock(afe);
+	return 0;
+
 skip_regmap:
+	clk_disable_unprepare(afe_priv->clk[CLK_AFE]);
 	mt8192_afe_disable_clock(afe);
 	return 0;
 }
@@ -2095,20 +2106,38 @@ static int mt8192_afe_runtime_resume(struct device *dev)
 {
 	struct mtk_base_afe *afe = dev_get_drvdata(dev);
 	struct mt8192_afe_private *afe_priv = afe->platform_priv;
+	bool reg_ctl = afe->regmap && !afe_priv->pm_runtime_bypass_reg_ctl;
 	int ret;
 
 	ret = mt8192_afe_enable_clock(afe);
 	if (ret)
 		return ret;
 
-	if (!afe->regmap || afe_priv->pm_runtime_bypass_reg_ctl)
+	/*
+	 * The AFE uses the regmap of the audio subsystem block it sits in, and
+	 * so does the clock driver of that block, whose gates are bits of
+	 * AUDIO_TOP_CON0-3. In cache-only mode the regmap drops writes to these
+	 * volatile registers, so the AFE clock can only be ungated once the
+	 * regmap reaches the hardware again; ungated before, the clock framework
+	 * counts it enabled while PDN_AFE stays set and no memory interface
+	 * runs. The bus clocks enabled above make the registers accessible.
+	 */
+	if (reg_ctl)
+		regcache_cache_only(afe->regmap, false);
+
+	ret = clk_prepare_enable(afe_priv->clk[CLK_AFE]);
+	if (ret) {
+		dev_err(dev, "failed to enable the AFE clock: %d\n", ret);
+		goto err_cache_only;
+	}
+
+	if (!reg_ctl)
 		goto skip_regmap;
 
-	regcache_cache_only(afe->regmap, false);
 	ret = regcache_sync(afe->regmap);
 	if (ret) {
-		regcache_cache_only(afe->regmap, true);
-		mt8192_afe_disable_clock(afe);
+		clk_disable_unprepare(afe_priv->clk[CLK_AFE]);
+		goto err_cache_only;
 	}
 
 	/* enable audio sys DCM for power saving */
@@ -2129,6 +2158,12 @@ static int mt8192_afe_runtime_resume(struct device *dev)
 
 skip_regmap:
 	return 0;
+
+err_cache_only:
+	if (reg_ctl)
+		regcache_cache_only(afe->regmap, true);
+	mt8192_afe_disable_clock(afe);
+	return ret;
 }
 
 static int mt8192_dai_memif_register(struct mtk_base_afe *afe)
