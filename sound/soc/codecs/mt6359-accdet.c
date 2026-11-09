@@ -344,7 +344,7 @@ static void mt6359_accdet_read_button(struct mt6359_accdet *priv)
 	}
 
 	priv->cali_voltage = max(mv, 0);
-	dev_dbg(priv->dev, "button voltage %d mV\n", mv);
+	dev_info(priv->dev, "button voltage %d mV\n", mv);
 }
 
 static unsigned int check_button(struct mt6359_accdet *priv, unsigned int v)
