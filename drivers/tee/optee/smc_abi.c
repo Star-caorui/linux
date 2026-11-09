@@ -971,9 +971,15 @@ static int optee_smc_do_call_with_arg(struct tee_context *ctx,
 		struct arm_smccc_res res;
 
 		trace_optee_invoke_fn_begin(&param);
+		if (optee->mitee && optee->mitee_trace)
+			pr_info("mitee: smc %#x %#x %#x %#x on cpu %u\n", param.a0,
+				param.a1, param.a2, param.a3, raw_smp_processor_id());
 		optee->smc.invoke_fn(param.a0, param.a1, param.a2, param.a3,
 				     param.a4, param.a5, param.a6, param.a7,
 				     &res);
+		if (optee->mitee && optee->mitee_trace)
+			pr_info("mitee: returned %#lx %#lx %#lx %#lx\n", res.a0,
+				res.a1, res.a2, res.a3);
 		trace_optee_invoke_fn_end(&param, &res);
 
 		if (res.a0 == OPTEE_SMC_RETURN_ETHREAD_LIMIT) {
@@ -1494,6 +1500,9 @@ optee_config_shm_memremap(optee_invoke_fn *invoke_fn, void **memremaped_shm)
 	void *rc;
 
 	invoke_fn(OPTEE_SMC_GET_SHM_CONFIG, 0, 0, 0, 0, 0, 0, 0, &res.smccc);
+	pr_info("GET_SHM_CONFIG: status %#lx start %#lx size %#lx settings %#lx\n",
+		res.result.status, res.result.start, res.result.size,
+		res.result.settings);
 	if (res.result.status != OPTEE_SMC_RETURN_OK) {
 		pr_err("static shm service not available\n");
 		return ERR_PTR(-ENOENT);
@@ -1817,6 +1826,7 @@ static int optee_probe(struct platform_device *pdev)
 		thread_count = 0;
 		max_notif_value = MITEE_MAX_NOTIF_VALUE;
 		rpc_param_count = 0;
+		pr_info("MiTEE: GET_SHM_CONFIG on cpu %u\n", raw_smp_processor_id());
 		goto config_shm;
 	}
 
