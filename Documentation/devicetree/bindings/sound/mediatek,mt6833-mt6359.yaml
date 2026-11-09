@@ -1,0 +1,93 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/sound/mediatek,mt6833-mt6359.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: MediaTek MT6833 sound card with the MT6359 codec
+
+maintainers:
+  - Rui Cao <i@udp0.com>
+
+description:
+  Sound card for MT6833 boards whose outputs and analog microphones all
+  go through the MT6359 PMIC codec. A speaker amplifier fed from one of
+  the codec's analog outputs is an auxiliary device of the card.
+
+allOf:
+  - $ref: sound-card-common.yaml#
+
+properties:
+  compatible:
+    const: mediatek,mt6833-mt6359-sound
+
+  audio-routing:
+    description:
+      Connections between the card widgets ("Headphone", "Headset Mic",
+      "Speaker", "Earpiece"), the MT6359 codec pins and the auxiliary
+      devices, whose widget names carry their sound-name-prefix.
+
+  aux-devs:
+    $ref: /schemas/types.yaml#/definitions/phandle-array
+    description: Analog amplifiers and other auxiliary devices of the card.
+
+  mediatek,platform:
+    $ref: /schemas/types.yaml#/definitions/phandle
+    description: The phandle of the MT6833 audio front end.
+
+  mediatek,accdet:
+    $ref: /schemas/types.yaml#/definitions/phandle
+    description:
+      The phandle of the MT6359 accessory detection block, if it is wired
+      to the headset jack.
+
+  pinctrl-names:
+    items:
+      - const: aud_clk_mosi_off
+      - const: aud_clk_mosi_on
+      - const: aud_dat_mosi_off
+      - const: aud_dat_mosi_on
+      - const: aud_dat_miso_off
+      - const: aud_dat_miso_on
+
+  pinctrl-0: true
+  pinctrl-1: true
+  pinctrl-2: true
+  pinctrl-3: true
+  pinctrl-4: true
+  pinctrl-5: true
+
+required:
+  - compatible
+  - audio-routing
+  - mediatek,platform
+  - pinctrl-names
+
+unevaluatedProperties: false
+
+examples:
+  - |
+    sound {
+        compatible = "mediatek,mt6833-mt6359-sound";
+        model = "Example";
+        mediatek,platform = <&afe>;
+        mediatek,accdet = <&accdet>;
+        aux-devs = <&speaker_amp>;
+        audio-routing =
+            "Headphone", "Headphone L",
+            "Headphone", "Headphone R",
+            "AIN1", "Headset Mic",
+            "Earpiece", "Receiver",
+            "Speaker Amp IN", "LINEOUT L",
+            "Speaker", "Speaker Amp OUT";
+        pinctrl-names = "aud_clk_mosi_off", "aud_clk_mosi_on",
+                        "aud_dat_mosi_off", "aud_dat_mosi_on",
+                        "aud_dat_miso_off", "aud_dat_miso_on";
+        pinctrl-0 = <&aud_clk_mosi_off>;
+        pinctrl-1 = <&aud_clk_mosi_on>;
+        pinctrl-2 = <&aud_dat_mosi_off>;
+        pinctrl-3 = <&aud_dat_mosi_on>;
+        pinctrl-4 = <&aud_dat_miso_off>;
+        pinctrl-5 = <&aud_dat_miso_on>;
+    };
+...
