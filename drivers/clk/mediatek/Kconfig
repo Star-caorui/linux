@@ -384,6 +384,16 @@ config COMMON_CLK_MT6833
 	  the infrastructure clock gates and resets (infracfg_ao).
 	  Say Y here if you want to boot a kernel on an MT6833 device.
 
+config COMMON_CLK_MT6833_IMP_IIC_WRAP
+	tristate "Clock driver for MediaTek MT6833 imp_iic_wrap"
+	depends on COMMON_CLK_MT6833
+	default COMMON_CLK_MT6833
+	help
+	  This driver supports the MediaTek MT6833 imp_iic_wrap clocks,
+	  which gate the clocks of the I2C controllers of the SoC.
+	  Say Y or M here if anything on an MT6833 device sits on an
+	  I2C bus, as its charger and sensors usually do.
+
 config COMMON_CLK_MT6833_MCUSYS
 	tristate "Clock driver for MediaTek MT6833 mcusys"
 	depends on COMMON_CLK_MT6833
