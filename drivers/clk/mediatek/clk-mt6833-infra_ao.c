@@ -6,6 +6,7 @@
  */
 
 #include <dt-bindings/clock/mediatek,mt6833-clk.h>
+#include <dt-bindings/reset/mediatek,mt6833-resets.h>
 #include <linux/module.h>
 #include <linux/platform_device.h>
 
@@ -149,9 +150,34 @@ static const struct mtk_gate infra_ao_clks[] = {
 	GATE_INFRA_AO4(CLK_IFRAO_AP_DMA, "ifrao_ap_dma", "ifrao_i2c1_pseudo", 31),
 };
 
+/*
+ * Software resets: each bank has a set register and, 4 bytes on, a clear
+ * register. The IDs are those of include/dt-bindings/reset/mediatek,mt6833-resets.h.
+ */
+static u16 infra_ao_rst_ofs[] = {
+	0x120, 0x130, 0x140, 0x150, 0x730,
+};
+
+static u16 infra_ao_idx_map[] = {
+	[MT6833_INFRA_RST0_LVTS_AP] = 0 * RST_NR_PER_BANK + 0,
+	[MT6833_INFRA_RST4_LVTS_MCU] = 4 * RST_NR_PER_BANK + 12,
+	[MT6833_INFRA_RST1_UFSHCI] = 1 * RST_NR_PER_BANK + 15,
+	[MT6833_INFRA_RST2_UNIPRO] = 2 * RST_NR_PER_BANK + 7,
+	[MT6833_INFRA_RST3_UFS_CRYPTO] = 3 * RST_NR_PER_BANK + 21,
+};
+
+static const struct mtk_clk_rst_desc infra_ao_rst_desc = {
+	.version = MTK_RST_SET_CLR,
+	.rst_bank_ofs = infra_ao_rst_ofs,
+	.rst_bank_nr = ARRAY_SIZE(infra_ao_rst_ofs),
+	.rst_idx_map = infra_ao_idx_map,
+	.rst_idx_map_nr = ARRAY_SIZE(infra_ao_idx_map),
+};
+
 static const struct mtk_clk_desc infra_ao_desc = {
 	.clks = infra_ao_clks,
 	.num_clks = ARRAY_SIZE(infra_ao_clks),
+	.rst_desc = &infra_ao_rst_desc,
 };
 
 static const struct of_device_id of_match_clk_mt6833_infra_ao[] = {
