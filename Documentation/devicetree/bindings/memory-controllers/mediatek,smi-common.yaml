@@ -63,6 +63,7 @@ properties:
           - mediatek,mt8195-smi-common-vpp
           - mediatek,mt8195-smi-sub-common
           - mediatek,mt8365-smi-common
+          - mediatek,mt6833-smi-sub-common
 
       - description: for mt7623
         items:
@@ -126,6 +127,7 @@ allOf:
         compatible:
           contains:
             enum:
+              - mediatek,mt6833-smi-sub-common
               - mediatek,mt8189-smi-sub-common
               - mediatek,mt8195-smi-sub-common
     then:
