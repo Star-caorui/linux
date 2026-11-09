@@ -1045,9 +1045,16 @@ static int mt6359_accdet_probe(struct platform_device *pdev)
 	return 0;
 }
 
+static const struct of_device_id mt6359_accdet_of_match[] = {
+	{ .compatible = "mediatek,mt6359-accdet" },
+	{ /* sentinel */ }
+};
+MODULE_DEVICE_TABLE(of, mt6359_accdet_of_match);
+
 static struct platform_driver mt6359_accdet_driver = {
 	.driver = {
 		.name = "pmic-codec-accdet",
+		.of_match_table = mt6359_accdet_of_match,
 	},
 	.probe = mt6359_accdet_probe,
 };
