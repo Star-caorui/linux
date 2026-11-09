@@ -1,0 +1,28 @@
+# SPDX-License-Identifier: GPL-2.0-only
+config VIDEO_MTK_SENINF_MT6833
+	tristate "MediaTek MT6833 sensor interface (SENINF)"
+	depends on V4L_PLATFORM_DRIVERS
+	depends on VIDEO_DEV && OF
+	depends on ARCH_MEDIATEK || COMPILE_TEST
+	select MEDIA_CONTROLLER
+	select VIDEO_V4L2_SUBDEV_API
+	select V4L2_FWNODE
+	select GENERIC_PHY
+	help
+	  Enable this to support the CSI-2 receivers of the MediaTek MT6833
+	  sensor interface, which pass camera sensor frames on to the camera
+	  DMA engines (camsv).
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called mtk-seninf-mt6833.
+
+config VIDEO_MTK_CAMSV_MT6833
+	tristate "MediaTek MT6833 camera DMA (camsv)"
+	depends on VIDEO_MTK_SENINF_MT6833
+	select VIDEOBUF2_DMA_CONTIG
+	help
+	  Enable this to capture frames from the MediaTek MT6833 sensor
+	  interface into memory through the camsv DMA engines.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called mtk-camsv-mt6833.
