@@ -1210,6 +1210,45 @@
 			lvts_efuse_data: lvts-calib@1c0 {
 				reg = <0x1c0 0x58>;
 			};
+
+			csi0_rx_calib: csi-calib@1a4 {
+				reg = <0x1a4 0x4>;
+			};
+
+			csi1_rx_calib: csi-calib@1a8 {
+				reg = <0x1a8 0x4>;
+			};
+
+			csi2_rx_calib: csi-calib@1ac {
+				reg = <0x1ac 0x4>;
+			};
+		};
+
+		csi0_rx: phy@11c80000 {
+			compatible = "mediatek,mt6833-csi-rx";
+			reg = <0 0x11c80000 0 0x4000>;
+			nvmem-cells = <&csi0_rx_calib>;
+			nvmem-cell-names = "calibration";
+			#phy-cells = <1>;
+			status = "disabled";
+		};
+
+		csi1_rx: phy@11c84000 {
+			compatible = "mediatek,mt6833-csi-rx";
+			reg = <0 0x11c84000 0 0x4000>;
+			nvmem-cells = <&csi1_rx_calib>;
+			nvmem-cell-names = "calibration";
+			#phy-cells = <1>;
+			status = "disabled";
+		};
+
+		csi2_rx: phy@11c88000 {
+			compatible = "mediatek,mt6833-csi-rx";
+			reg = <0 0x11c88000 0 0x4000>;
+			nvmem-cells = <&csi2_rx_calib>;
+			nvmem-cell-names = "calibration";
+			#phy-cells = <1>;
+			status = "disabled";
 		};
 
 		imp_iic_wrap_e: clock-controller@11cb1000 {
@@ -1608,6 +1647,38 @@
 			#clock-cells = <1>;
 		};
 
+		seninf: seninf@1a004000 {
+			compatible = "mediatek,mt6833-seninf";
+			reg = <0 0x1a004000 0 0x6000>;
+			clocks = <&camsys CLK_CAM_M_SENINF>,
+				 <&topckgen CLK_TOP_SENINF_SEL>,
+				 <&topckgen CLK_TOP_SENINF1_SEL>,
+				 <&topckgen CLK_TOP_SENINF2_SEL>;
+			clock-names = "camsys", "seninf", "seninf1", "seninf2";
+			power-domains = <&spm MT6833_POWER_DOMAIN_CAM>;
+			phys = <&csi0_rx 0>, <&csi0_rx 1>, <&csi0_rx 2>,
+			       <&csi1_rx 0>, <&csi1_rx 1>, <&csi1_rx 2>,
+			       <&csi2_rx 0>, <&csi2_rx 1>, <&csi2_rx 2>;
+			phy-names = "csi0", "csi0a", "csi0b",
+				    "csi1", "csi1a", "csi1b",
+				    "csi2", "csi2a", "csi2b";
+			status = "disabled";
+
+			ports {
+				#address-cells = <1>;
+				#size-cells = <0>;
+
+				/* cam_mux 5 (pad 11) */
+				port@b {
+					reg = <11>;
+
+					seninf_camsv2: endpoint {
+						remote-endpoint = <&camsv2_in>;
+					};
+				};
+			};
+		};
+
 		camsys_rawa: clock-controller@1a04f000 {
 			compatible = "mediatek,mt6833-camsys-rawa";
 			reg = <0 0x1a04f000 0 0x1000>;
@@ -1618,6 +1689,24 @@
 			compatible = "mediatek,mt6833-camsys-rawb";
 			reg = <0 0x1a06f000 0 0x1000>;
 			#clock-cells = <1>;
+		};
+
+		camsv2: camsv@1a092000 {
+			compatible = "mediatek,mt6833-camsv";
+			reg = <0 0x1a092000 0 0x1000>;
+			interrupts = <GIC_SPI 327 IRQ_TYPE_LEVEL_HIGH 0>;
+			clocks = <&camsys CLK_CAM_M_CAM>,
+				 <&camsys CLK_CAM_M_CAMTG>,
+				 <&camsys CLK_CAM_M_CAMSV1>;
+			clock-names = "cam", "camtg", "camsv";
+			power-domains = <&spm MT6833_POWER_DOMAIN_CAM>;
+			status = "disabled";
+
+			port {
+				camsv2_in: endpoint {
+					remote-endpoint = <&seninf_camsv2>;
+				};
+			};
 		};
 
 		ipesys: clock-controller@1b000000 {
