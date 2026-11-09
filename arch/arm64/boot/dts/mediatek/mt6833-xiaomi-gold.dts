@@ -711,10 +711,22 @@
 	status = "okay";
 };
 
+&camsv2 {
+	status = "okay";
+};
+
 &cci {
 	operating-points-v2 = <&cci_opp>;
 	proc-supply = <&mt6359p_vproc2_reg>;
 	sram-supply = <&mt6359p_vsram_proc2_reg>;
+	status = "okay";
+};
+
+&csi0_rx {
+	status = "okay";
+};
+
+&csi1_rx {
 	status = "okay";
 };
 
@@ -840,6 +852,7 @@
 			cam_front_out: endpoint {
 				data-lanes = <1 2 3 4>;
 				link-frequencies = /bits/ 64 <181200000>;
+				remote-endpoint = <&seninf_front_in>;
 			};
 		};
 	};
@@ -1060,6 +1073,7 @@
 			cam_depth_out: endpoint {
 				data-lanes = <1>;
 				link-frequencies = /bits/ 64 <360000000>;
+				remote-endpoint = <&seninf_depth_in>;
 			};
 		};
 	};
@@ -1605,6 +1619,32 @@
 };
 
 /* The stock software leaves this bus to the SCP, as SCP_SPI2; see i2c1 */
+&seninf {
+	status = "okay";
+
+	ports {
+		/* CSI0B, the depth camera's one lane */
+		port@1 {
+			reg = <1>;
+
+			seninf_depth_in: endpoint {
+				data-lanes = <1>;
+				remote-endpoint = <&cam_depth_out>;
+			};
+		};
+
+		/* CSI1, the front camera's four lanes */
+		port@2 {
+			reg = <2>;
+
+			seninf_front_in: endpoint {
+				data-lanes = <1 2 3 4>;
+				remote-endpoint = <&cam_front_out>;
+			};
+		};
+	};
+};
+
 &spi2 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&spi2_pins>;
