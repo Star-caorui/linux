@@ -7,6 +7,7 @@
 //
 
 #include <linux/cleanup.h>
+#include <linux/iio/consumer.h>
 #include <linux/of.h>
 #include <linux/input.h>
 #include <linux/kthread.h>
@@ -328,6 +329,24 @@ static void mt6359_accdet_jack_report(struct mt6359_accdet *priv)
 	snd_soc_jack_report(priv->jack, report, MT6359_ACCDET_JACK_MASK);
 }
 
+/*
+ * The buttons of a headset pull the microphone line to different voltages,
+ * which the PMIC AUXADC measures on its accdet channel.
+ */
+static void mt6359_accdet_read_button(struct mt6359_accdet *priv)
+{
+	int mv, ret;
+
+	ret = iio_read_channel_processed(priv->auxadc, &mv);
+	if (ret < 0) {
+		dev_err(priv->dev, "failed to read the button voltage: %d\n", ret);
+		return;
+	}
+
+	priv->cali_voltage = max(mv, 0);
+	dev_dbg(priv->dev, "button voltage %d mV\n", mv);
+}
+
 static unsigned int check_button(struct mt6359_accdet *priv, unsigned int v)
 {
 	if (priv->caps & ACCDET_FOUR_KEY) {
@@ -480,6 +499,15 @@ static irqreturn_t mt6359_accdet_irq(int irq, void *data)
 		regmap_update_bits(priv->regmap, RG_INT_STATUS_ACCDET_ADDR,
 				   RG_INT_STATUS_ACCDET_MASK_SFT,
 				   BIT(RG_INT_STATUS_ACCDET_SFT));
+
+		/*
+		 * Leaving the microphone state (1) with a headset in is a
+		 * button press: measure the button while it is held, before
+		 * the work takes the new state.
+		 */
+		if (priv->auxadc && priv->jack_type == SND_JACK_HEADSET &&
+		    priv->accdet_status == 1)
+			mt6359_accdet_read_button(priv);
 
 		queue_work(priv->accdet_workqueue, &priv->accdet_work);
 	} else {
@@ -958,6 +986,17 @@ static int mt6359_accdet_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev, "Failed to parse dts\n");
 		return ret;
 	}
+
+	priv->auxadc = devm_iio_channel_get(&pdev->dev, "pmic_accdet");
+	if (IS_ERR(priv->auxadc)) {
+		ret = PTR_ERR(priv->auxadc);
+		if (ret != -ENODEV)
+			return dev_err_probe(&pdev->dev, ret,
+					     "failed to get the AUXADC channel\n");
+		/* without it, every button reads as the middle one */
+		priv->auxadc = NULL;
+	}
+
 	mutex_init(&priv->res_lock);
 
 	priv->accdet_workqueue = create_singlethread_workqueue("accdet");
@@ -1064,4 +1103,5 @@ module_platform_driver(mt6359_accdet_driver)
 /* Module information */
 MODULE_DESCRIPTION("MT6359 ALSA SoC codec jack driver");
 MODULE_AUTHOR("Argus Lin <argus.lin@mediatek.com>");
+MODULE_IMPORT_NS("IIO_CONSUMER");
 MODULE_LICENSE("GPL v2");

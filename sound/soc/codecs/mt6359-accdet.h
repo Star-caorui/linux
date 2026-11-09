@@ -116,6 +116,7 @@ struct mt6359_accdet {
 	unsigned int accdet_status;
 	unsigned int pre_accdet_status;
 	unsigned int cali_voltage;
+	struct iio_channel *auxadc;
 	unsigned int jd_sts;
 	struct work_struct accdet_work;
 	struct workqueue_struct *accdet_workqueue;
