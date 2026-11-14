@@ -843,6 +843,19 @@ static void mtk_output_dsi_enable(struct mtk_dsi *dsi)
 	if (dsi->enabled)
 		return;
 
+	/*
+	 * Enter HS on the clock lane again, from LP-11. A D-PHY receiver that
+	 * was reset or set up after our pre_enable (a bridge that does so in
+	 * its own pre_enable, after ours) only locks to the clock on an LP-11
+	 * to HS transition, and a continuous clock gives it no other. MediaTek's
+	 * driver enters clock HS only here, after its bridge and panel are set
+	 * up (mediatek_v2/mtk_dsi.c, mtk_output_dsi_enable(): mtk_dsi_set_mode(),
+	 * mtk_dsi_clk_hs_mode(dsi, 1), then bdg_tx_start() and the deskew).
+	 */
+	mtk_dsi_clk_hs_mode(dsi, 0);
+	usleep_range(1000, 2000);
+	mtk_dsi_clk_hs_mode(dsi, 1);
+
 	mtk_dsi_set_mode(dsi);
 	if (dsi->driver_data->has_skewcal && dsi->data_rate > 1500000000)
 		mtk_dsi_skew_calibration(dsi);
