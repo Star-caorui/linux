@@ -435,8 +435,15 @@ static int mt7615_mcu_fw_pmctrl(struct mt7615_dev *dev)
 
 	mutex_lock(&pm->mutex);
 
+	if (is_mt6833(&dev->mt76)) {
+		if (dev->mt76.token_count)
+			dev->mt6833_skip_token++;
+		else if (pm->wake.count)
+			dev->mt6833_skip_wake++;
+	}
 	if (mt76_connac_skip_fw_pmctrl(mphy, pm))
 		goto out;
+	dev->mt6833_fw_owns++;
 
 	mt7622_trigger_hif_int(dev, true);
 

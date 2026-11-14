@@ -160,6 +160,10 @@ static void mt6833_debugfs(struct mt7615_dev *dev, void __iomem *base)
 	debugfs_create_file_size("window", 0400, mt6833_dbg_dir, NULL, &mt6833_win_fops, SZ_1M);
 	debugfs_create_file_unsafe("remap1", 0600, mt6833_dbg_dir, NULL, &mt6833_remap_fops);
 	debugfs_create_u32("deep_sleeps", 0400, mt6833_dbg_dir, &dev->mt6833_deep_sleeps);
+	debugfs_create_u32("fw_owns", 0400, mt6833_dbg_dir, &dev->mt6833_fw_owns);
+	debugfs_create_u32("skip_token", 0400, mt6833_dbg_dir, &dev->mt6833_skip_token);
+	debugfs_create_u32("skip_wake", 0400, mt6833_dbg_dir, &dev->mt6833_skip_wake);
+	debugfs_create_u32("skip_busy", 0400, mt6833_dbg_dir, &dev->mt6833_skip_busy);
 }
 
 static int mt6833_wmac_probe(struct platform_device *pdev)

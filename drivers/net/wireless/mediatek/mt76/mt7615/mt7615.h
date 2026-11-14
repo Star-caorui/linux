@@ -319,6 +319,8 @@ struct mt7615_dev {
 	u8 mt6833_wmm_valid;
 	/* MT6833: times the firmware came back from deep sleep */
 	u32 mt6833_deep_sleeps;
+	/* DEBUG: firmware own given, and why it was not */
+	u32 mt6833_fw_owns, mt6833_skip_token, mt6833_skip_wake, mt6833_skip_busy;
 };
 
 enum tx_pkt_queue_idx {
