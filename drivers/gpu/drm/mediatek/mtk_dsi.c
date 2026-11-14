@@ -1131,6 +1131,8 @@ static void mtk_dsi_cmdq(struct mtk_dsi *dsi, const struct mipi_dsi_msg *msg)
 	u8 config, cmdq_size, cmdq_off, type = msg->type;
 	u32 reg_val, cmdq_mask, i;
 	u32 reg_cmdq_off = dsi->driver_data->reg_cmdq_off;
+	/* the packet's data identifier: virtual channel and data type */
+	u8 data_id = FIELD_PREP(GENMASK(7, 6), msg->channel) | type;
 
 	if (MTK_DSI_HOST_IS_READ(type))
 		config = BTA;
@@ -1144,12 +1146,12 @@ static void mtk_dsi_cmdq(struct mtk_dsi *dsi, const struct mipi_dsi_msg *msg)
 		cmdq_size = 1 + (msg->tx_len + 3) / 4;
 		cmdq_off = 4;
 		cmdq_mask = CONFIG | DATA_ID | DATA_0 | DATA_1;
-		reg_val = (msg->tx_len << 16) | (type << 8) | config;
+		reg_val = (msg->tx_len << 16) | (data_id << 8) | config;
 	} else {
 		cmdq_size = 1;
 		cmdq_off = 2;
 		cmdq_mask = CONFIG | DATA_ID;
-		reg_val = (type << 8) | config;
+		reg_val = (data_id << 8) | config;
 	}
 
 	for (i = 0; i < msg->tx_len; i++)
