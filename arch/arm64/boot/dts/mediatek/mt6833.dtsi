@@ -6,6 +6,7 @@
 #include <dt-bindings/clock/mediatek,mt6833-clk.h>
 #include <dt-bindings/interrupt-controller/arm-gic.h>
 #include <dt-bindings/interrupt-controller/irq.h>
+#include <dt-bindings/memory/mediatek,mt6833-memory-port.h>
 #include <dt-bindings/phy/phy.h>
 #include <dt-bindings/power/mediatek,mt6833-power.h>
 #include <dt-bindings/reset/mediatek,mt6833-resets.h>
@@ -884,11 +885,45 @@
 			status = "disabled";
 		};
 
+		smi_common: smi@14002000 {
+			compatible = "mediatek,mt6833-smi-common";
+			reg = <0 0x14002000 0 0x1000>;
+			clocks = <&mmsys CLK_MM_SMI_INFRA>, <&mmsys CLK_MM_SMI_COMMON>,
+				 <&mmsys CLK_MM_SMI_GALS>, <&mmsys CLK_MM_SMI_IOMMU>;
+			clock-names = "apb", "smi", "gals0", "gals1";
+			power-domains = <&spm MT6833_POWER_DOMAIN_DISP>;
+			status = "disabled";
+		};
+
+		larb0: larb@14003000 {
+			compatible = "mediatek,mt6833-smi-larb";
+			reg = <0 0x14003000 0 0x1000>;
+			mediatek,larb-id = <0>;
+			mediatek,smi = <&smi_common>;
+			clocks = <&mmsys CLK_MM_SMI_INFRA>, <&mmsys CLK_MM_SMI_COMMON>;
+			clock-names = "apb", "smi";
+			power-domains = <&spm MT6833_POWER_DOMAIN_DISP>;
+			status = "disabled";
+		};
+
+		larb1: larb@14004000 {
+			compatible = "mediatek,mt6833-smi-larb";
+			reg = <0 0x14004000 0 0x1000>;
+			mediatek,larb-id = <1>;
+			mediatek,smi = <&smi_common>;
+			clocks = <&mmsys CLK_MM_SMI_INFRA>, <&mmsys CLK_MM_SMI_COMMON>;
+			clock-names = "apb", "smi";
+			power-domains = <&spm MT6833_POWER_DOMAIN_DISP>;
+			status = "disabled";
+		};
+
 		ovl0: ovl@14005000 {
 			compatible = "mediatek,mt6833-disp-ovl", "mediatek,mt8192-disp-ovl";
 			reg = <0 0x14005000 0 0x1000>;
 			interrupts = <GIC_SPI 255 IRQ_TYPE_LEVEL_HIGH 0>;
 			clocks = <&mmsys CLK_MM_DISP_OVL0>;
+			iommus = <&iommu M4U_PORT_L0_OVL_RDMA0_HDR>,
+				 <&iommu M4U_PORT_L0_OVL_RDMA0>;
 			power-domains = <&spm MT6833_POWER_DOMAIN_DISP>;
 			status = "disabled";
 		};
@@ -898,6 +933,8 @@
 			reg = <0 0x14006000 0 0x1000>;
 			interrupts = <GIC_SPI 256 IRQ_TYPE_LEVEL_HIGH 0>;
 			clocks = <&mmsys CLK_MM_DISP_OVL0_2L>;
+			iommus = <&iommu M4U_PORT_L1_OVL_2L_RDMA0_HDR>,
+				 <&iommu M4U_PORT_L1_OVL_2L_RDMA0>;
 			power-domains = <&spm MT6833_POWER_DOMAIN_DISP>;
 			status = "disabled";
 		};
@@ -907,6 +944,7 @@
 			reg = <0 0x14007000 0 0x1000>;
 			interrupts = <GIC_SPI 257 IRQ_TYPE_LEVEL_HIGH 0>;
 			clocks = <&mmsys CLK_MM_DISP_RDMA0>;
+			iommus = <&iommu M4U_PORT_L1_DISP_RDMA0>;
 			mediatek,rdma-fifo-size = <35840>;
 			power-domains = <&spm MT6833_POWER_DOMAIN_DISP>;
 			status = "disabled";
@@ -978,6 +1016,18 @@
 			phys = <&mipi_tx0>;
 			phy-names = "dphy";
 			power-domains = <&spm MT6833_POWER_DOMAIN_DISP>;
+			status = "disabled";
+		};
+
+		iommu: iommu@14016000 {
+			compatible = "mediatek,mt6833-iommu-mm";
+			reg = <0 0x14016000 0 0x1000>;
+			interrupts = <GIC_SPI 271 IRQ_TYPE_LEVEL_HIGH 0>;
+			clocks = <&mmsys CLK_MM_SMI_IOMMU>;
+			clock-names = "bclk";
+			mediatek,larbs = <&larb0>, <&larb1>;
+			power-domains = <&spm MT6833_POWER_DOMAIN_DISP>;
+			#iommu-cells = <1>;
 			status = "disabled";
 		};
 
