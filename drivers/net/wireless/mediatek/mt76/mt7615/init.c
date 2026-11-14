@@ -660,6 +660,12 @@ void mt7615_init_device(struct mt7615_dev *dev)
 
 	mt7615_init_wiphy(hw);
 	dev->pm.idle_timeout = MT7615_PM_TIMEOUT;
+	/*
+	 * MT6833's firmware goes into deep sleep on its own when it is idle (it says so with
+	 * EVENT_ID_SLEEPY_INFO) and raises an exception on its way back if the host still owns the
+	 * WMAC: hand it over whenever the host is idle, as MediaTek's gen4m does.
+	 */
+	dev->pm.enable = is_mt6833(&dev->mt76);
 	dev->pm.stats.last_wake_event = jiffies;
 	dev->pm.stats.last_doze_event = jiffies;
 	mt7615_cap_dbdc_disable(dev);
