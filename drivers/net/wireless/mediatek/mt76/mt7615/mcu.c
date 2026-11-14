@@ -106,7 +106,8 @@ static void mt6833_trace_tx(struct mt7615_dev *dev, struct sk_buff *skb, int cmd
 	int hdr = cmd & __MCU_CMD_FIELD_UNI ? sizeof(struct mt7615_uni_txd) :
 					      sizeof(struct mt7615_mcu_txd);
 	/* not the MAC addresses at offset 4 */
-	int n = cmd == MCU_CE_CMD(SET_NVRAM) || cmd == MCU_CE_CMD(BSS_ACTIVATE_CTRL) ? 4 : 16;
+	int n = cmd == MCU_CE_CMD(SET_NVRAM) || cmd == MCU_CE_CMD(BSS_ACTIVATE_CTRL) ||
+		cmd == MCU_CE_CMD(SET_BSS_INFO) ? 4 : cmd == MCU_CE_CMD(UPDATE_STA_RECORD) ? 2 : 16;
 
 	if (!is_mt6833(&dev->mt76) || !mt6833_trace || cmd == MCU_CMD(FW_SCATTER))
 		return;
