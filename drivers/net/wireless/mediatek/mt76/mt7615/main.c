@@ -366,6 +366,10 @@ static int mt7615_set_key(struct ieee80211_hw *hw, enum set_key_cmd cmd,
 	    !(key->flags & IEEE80211_KEY_FLAG_PAIRWISE))
 		return -EOPNOTSUPP;
 
+	/* MT6833: keys through the firmware are not done yet; mac80211 protects the frames */
+	if (is_mt6833(&dev->mt76))
+		return -EOPNOTSUPP;
+
 	/* fall back to sw encryption for unsupported ciphers */
 	switch (key->cipher) {
 	case WLAN_CIPHER_SUITE_AES_CMAC:
@@ -620,15 +624,18 @@ static void mt7615_bss_info_changed(struct ieee80211_hw *hw,
 		mt76_connac_mcu_set_vif_ps(&dev->mt76, vif);
 
 	if ((changed & BSS_CHANGED_ARP_FILTER) &&
-	    mt7615_firmware_offload(dev)) {
+	    mt7615_firmware_offload(dev) && !is_mt6833(&dev->mt76)) {
 		struct mt7615_vif *mvif = (struct mt7615_vif *)vif->drv_priv;
 
 		mt76_connac_mcu_update_arp_filter(&dev->mt76, &mvif->mt76,
 						  info);
 	}
 
-	if (changed & BSS_CHANGED_ASSOC)
+	if (changed & BSS_CHANGED_ASSOC) {
 		mt7615_mac_set_beacon_filter(phy, vif, vif->cfg.assoc);
+		if (is_mt6833(&dev->mt76))
+			mt6833_mcu_set_assoc(phy, vif);
+	}
 
 	if (changed & BSS_CHANGED_MU_GROUPS)
 		 mt7615_update_mu_group(hw, vif, info);

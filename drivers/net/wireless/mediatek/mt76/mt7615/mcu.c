@@ -1390,17 +1390,373 @@ static int mt6833_mcu_bss_activate(struct mt7615_phy *phy, struct ieee80211_vif 
 				 sizeof(req), false);
 }
 
+/*
+ * MT6833: BSS info and station records the way its firmware takes them (MediaTek's gen4m
+ * CMD_SET_BSS_INFO and CMD_UPDATE_STA_RECORD, legacy commands, as built for MT6833: SOC2_1X1,
+ * no 802.11ax), station mode only. A station record's index is its WTBL entry (mt76's wcid).
+ */
+#define MT6833_MEDIA_CONNECTED		0
+#define MT6833_MEDIA_DISCONNECTED	1
+#define MT6833_PHY_HR_DSSS		BIT(0)
+#define MT6833_PHY_ERP			BIT(1)
+#define MT6833_PHY_OFDM			BIT(3)
+#define MT6833_PHY_HT			BIT(4)
+#define MT6833_PHY_VHT			BIT(5)
+#define MT6833_STA_STATE_1		0
+#define MT6833_STA_STATE_3		2
+#define MT6833_STA_LEGACY_AP		(BIT(0) | BIT(6))
+#define MT6833_WTBL_NONE		0xff
+
+struct mt6833_bss_rlm {
+	u8 bss_idx;
+	u8 band;		/* 1: 2.4 GHz, 2: 5 GHz */
+	u8 primary_ch;
+	u8 sco;			/* 0: none, 1: secondary above, 3: below */
+	u8 erp_protect;
+	u8 ht_protect;
+	u8 gf_mode;
+	u8 rifs;
+	__le16 ht_op_info3;
+	__le16 ht_op_info2;
+	u8 ht_op_info1;
+	u8 short_preamble;
+	u8 short_slot;
+	u8 vht_width;		/* 0: 20/40 MHz, 1: 80, 2: 160 */
+	u8 vht_s1;
+	u8 vht_s2;
+	__le16 vht_basic_mcs;
+	u8 tx_nss;
+	u8 rx_nss;
+} __packed;
+
+struct mt6833_bss_info {
+	u8 bss_idx;
+	u8 conn_state;
+	u8 op_mode;		/* 0: infrastructure */
+	u8 ssid_len;
+	u8 ssid[32];
+	u8 bssid[ETH_ALEN];
+	u8 qbss;
+	u8 version;
+	__le16 op_rates;
+	__le16 basic_rates;
+	u8 ap_sta_idx;
+	u8 pad0;
+	__le16 fixed_rate;
+	u8 non_ht_basic_phy;
+	u8 auth_mode;
+	u8 enc_status;
+	u8 phy_types;
+	u8 wapi;
+	u8 ap_mode;
+	u8 bmc_wlan_idx;
+	u8 hidden_ssid;
+	u8 disconnect_threshold;
+	u8 iot_ap_act;
+	u8 pad1[2];
+	__le32 private_data;
+	struct mt6833_bss_rlm rlm;
+	u8 dbdc_band;
+	u8 wmm_set;
+	u8 dbdc_action;
+	u8 nss;
+	u8 pad2[2];
+	u8 he_op[3];
+	u8 bss_color;
+	__le16 he_basic_mcs;
+	u8 max_bssid_ind;
+	u8 mbssid_idx;
+	__le64 iot_ap_act64;
+	u8 pad3[4];
+} __packed;
+
+struct mt6833_sta_rec {
+	u8 sta_idx;
+	u8 sta_type;
+	u8 addr[ETH_ALEN];
+	__le16 aid;
+	__le16 listen_interval;
+	u8 bss_idx;
+	u8 phy_types;
+	__le16 rates;
+	__le16 basic_rates;
+	u8 qos;
+	u8 uapsd;
+	u8 state;
+	u8 mcs;
+	u8 mcs32;
+	u8 version;
+	u8 rx_mcs_mask[10];
+	__le16 rx_highest;
+	__le32 tx_rate_info;
+	__le16 ht_cap;
+	__le16 ht_ext_cap;
+	__le32 txbf_cap;
+	u8 ampdu_param;
+	u8 asel;
+	u8 rcpi;
+	u8 need_resp;
+	u8 uapsd_ac;
+	u8 uapsd_sp;
+	u8 wlan_idx;
+	u8 bmc_wlan_idx;
+	__le32 vht_cap;
+	__le16 vht_rx_mcs;
+	__le16 vht_rx_highest;
+	__le16 vht_tx_mcs;
+	__le16 vht_tx_highest;
+	u8 rts_policy;
+	u8 vht_op_mode;
+	u8 traffic_type;
+	u8 tx_gf;
+	u8 tx_sgi;
+	u8 tx_stbc;
+	__le16 fixed_rate;
+	u8 tx_ampdu;
+	u8 rx_ampdu;
+	u8 pad0[2];
+	__le32 fixed_phy_rate;
+	__le16 max_link_speed;
+	__le16 min_link_speed;
+	__le32 flags;
+	u8 tx_ba_size;
+	u8 rx_ba_size;
+	u8 ba_rsv[2];
+	__le16 pfmu_id;		/* 0xffff: none */
+	u8 txbf[30];		/* MU, ETxBF, sounding and iBF fields: unused */
+	u8 tx_amsdu_in_ampdu;
+	u8 rx_amsdu_in_ampdu;
+	u8 pad1[2];
+	__le32 tx_max_amsdu_len;
+	u8 pad2[32];
+} __packed;
+
+static_assert(sizeof(struct mt6833_bss_rlm) == 22);
+static_assert(sizeof(struct mt6833_bss_info) == 116);
+static_assert(sizeof(struct mt6833_sta_rec) == 168);
+
+/* mt76's rate tables (2.4 GHz: 1, 2, 5.5, 11, then OFDM 6..54; 5 GHz: OFDM) to gen4m's rate set */
+static u16 mt6833_rate_set(u32 mask, enum nl80211_band band)
+{
+	unsigned long m = mask;
+	u16 set = 0;
+	int i;
+
+	for_each_set_bit(i, &m, 12) {
+		int r = band == NL80211_BAND_2GHZ ? i : i + 4;
+
+		set |= BIT(r < 4 ? r : r + 2);
+	}
+	return set;
+}
+
+static u8 mt6833_phy_types(enum nl80211_band band, struct ieee80211_sta *sta)
+{
+	u8 set = band == NL80211_BAND_2GHZ ? MT6833_PHY_HR_DSSS | MT6833_PHY_ERP :
+					     MT6833_PHY_OFDM;
+
+	if (!sta || sta->deflink.ht_cap.ht_supported)
+		set |= MT6833_PHY_HT;
+	if (band != NL80211_BAND_2GHZ && (!sta || sta->deflink.vht_cap.vht_supported))
+		set |= MT6833_PHY_VHT;
+	return set;
+}
+
+static int mt6833_mcu_set_bss(struct mt7615_phy *phy, struct ieee80211_vif *vif,
+			      struct ieee80211_sta *sta, bool connected)
+{
+	struct mt7615_vif *mvif = (struct mt7615_vif *)vif->drv_priv;
+	struct cfg80211_chan_def *chandef = &phy->mt76->chandef;
+	enum nl80211_band band = chandef->chan->band;
+	struct ieee80211_bss_conf *conf = &vif->bss_conf;
+	struct mt6833_bss_info req = {
+		.bss_idx = mvif->mt76.idx,
+		.conn_state = connected ? MT6833_MEDIA_CONNECTED : MT6833_MEDIA_DISCONNECTED,
+		.qbss = conf->qos,
+		.ap_sta_idx = sta ? ((struct mt7615_sta *)sta->drv_priv)->wcid.idx : MT6833_WTBL_NONE,
+		.fixed_rate = cpu_to_le16(band == NL80211_BAND_2GHZ ? 0x0000 : 0x004b),
+		.non_ht_basic_phy = band == NL80211_BAND_2GHZ ? 1 : 3,
+		/* frames are protected by mac80211 for now: nothing for the firmware to hold back */
+		.auth_mode = 0,
+		.enc_status = 1,
+		.phy_types = mt6833_phy_types(band, sta),
+		.bmc_wlan_idx = mvif->sta.wcid.idx,
+		.wmm_set = mvif->mt76.wmm_idx,
+		.nss = 1,
+	};
+	struct mt6833_bss_rlm *rlm = &req.rlm;
+	int width = cfg80211_chandef_get_width(chandef);
+
+	if (vif->type != NL80211_IFTYPE_STATION)
+		return -EOPNOTSUPP;
+
+	req.ssid_len = min_t(int, vif->cfg.ssid_len, sizeof(req.ssid));
+	memcpy(req.ssid, vif->cfg.ssid, req.ssid_len);
+	if (conf->bssid)
+		ether_addr_copy(req.bssid, conf->bssid);
+	req.basic_rates = cpu_to_le16(mt6833_rate_set(conf->basic_rates, band));
+	req.op_rates = sta ? cpu_to_le16(mt6833_rate_set(sta->deflink.supp_rates[band], band)) :
+			     req.basic_rates;
+
+	rlm->bss_idx = req.bss_idx;
+	rlm->band = band == NL80211_BAND_2GHZ ? 1 : 2;
+	rlm->primary_ch = chandef->chan->hw_value;
+	if (width >= 40) {
+		int pos = (chandef->chan->center_freq - (chandef->center_freq1 - width / 2 + 10)) / 20;
+
+		rlm->sco = pos % 2 ? 3 : 1;
+		rlm->ht_op_info1 = rlm->sco | BIT(2);
+	}
+	if (width >= 80) {
+		rlm->vht_width = width == 80 ? 1 : 2;
+		rlm->vht_s1 = ieee80211_frequency_to_channel(chandef->center_freq1);
+	}
+	rlm->erp_protect = conf->use_cts_prot;
+	rlm->ht_protect = conf->ht_operation_mode & IEEE80211_HT_OP_MODE_PROTECTION;
+	rlm->short_preamble = conf->use_short_preamble;
+	rlm->short_slot = conf->use_short_slot;
+	rlm->tx_nss = 1;
+	rlm->rx_nss = 1;
+
+	return mt76_mcu_send_msg(&phy->dev->mt76, MCU_CE_CMD(SET_BSS_INFO), &req, sizeof(req),
+				 false);
+}
+
+static int mt6833_mcu_set_sta(struct mt7615_phy *phy, struct ieee80211_vif *vif,
+			      struct ieee80211_sta *sta, bool assoc)
+{
+	struct mt7615_vif *mvif = (struct mt7615_vif *)vif->drv_priv;
+	struct mt7615_sta *msta = (struct mt7615_sta *)sta->drv_priv;
+	enum nl80211_band band = phy->mt76->chandef.chan->band;
+	struct ieee80211_sta_ht_cap *ht = &sta->deflink.ht_cap;
+	struct ieee80211_sta_vht_cap *vht = &sta->deflink.vht_cap;
+	struct mt6833_sta_rec req = {
+		.sta_idx = msta->wcid.idx,
+		.sta_type = MT6833_STA_LEGACY_AP,
+		.aid = cpu_to_le16(vif->cfg.aid),
+		.bss_idx = mvif->mt76.idx,
+		.phy_types = mt6833_phy_types(band, sta),
+		.rates = cpu_to_le16(mt6833_rate_set(sta->deflink.supp_rates[band], band)),
+		.basic_rates = cpu_to_le16(mt6833_rate_set(vif->bss_conf.basic_rates, band)),
+		.qos = sta->wme,
+		.state = assoc ? MT6833_STA_STATE_3 : MT6833_STA_STATE_1,
+		.wlan_idx = msta->wcid.idx,
+		.bmc_wlan_idx = MT6833_WTBL_NONE,
+		.fixed_rate = cpu_to_le16(band == NL80211_BAND_2GHZ ? 0x0000 : 0x004b),
+		.pfmu_id = cpu_to_le16(0xffff),
+	};
+
+	ether_addr_copy(req.addr, sta->addr);
+	if (ht->ht_supported) {
+		req.mcs = ht->mcs.rx_mask[0];
+		req.mcs32 = ht->mcs.rx_mask[4] & 1;
+		memcpy(req.rx_mcs_mask, ht->mcs.rx_mask, sizeof(req.rx_mcs_mask));
+		req.rx_highest = ht->mcs.rx_highest;
+		req.ht_cap = cpu_to_le16(ht->cap);
+		req.ampdu_param = ht->ampdu_factor | ht->ampdu_density << 2;
+	}
+	if (vht->vht_supported) {
+		req.vht_cap = cpu_to_le32(vht->cap);
+		req.vht_rx_mcs = vht->vht_mcs.rx_mcs_map;
+		req.vht_rx_highest = vht->vht_mcs.rx_highest;
+		req.vht_tx_mcs = vht->vht_mcs.tx_mcs_map;
+		req.vht_tx_highest = vht->vht_mcs.tx_highest;
+	}
+
+	return mt76_mcu_send_msg(&phy->dev->mt76, MCU_CE_CMD(UPDATE_STA_RECORD), &req,
+				 sizeof(req), false);
+}
+
 static int mt6833_mcu_add_bss(struct mt7615_phy *phy, struct ieee80211_vif *vif,
 			      struct ieee80211_sta *sta, bool enable)
 {
-	return enable ? -EOPNOTSUPP : 0;
+	if (vif->type != NL80211_IFTYPE_STATION)
+		return enable ? -EOPNOTSUPP : 0;
+
+	return mt6833_mcu_set_bss(phy, vif, enable ? sta : NULL, enable && vif->cfg.assoc);
 }
 
 static int mt6833_mcu_add_sta(struct mt7615_phy *phy, struct ieee80211_vif *vif,
 			      struct ieee80211_sta *sta, bool enable)
 {
-	return enable ? -EOPNOTSUPP : 0;
+	struct mt7615_vif *mvif = (struct mt7615_vif *)vif->drv_priv;
+	struct {
+		u8 action;	/* 0: the station */
+		u8 sta_idx;
+		u8 bss_idx;
+		u8 rsv;
+	} __packed req = {
+		.bss_idx = mvif->mt76.idx,
+	};
+
+	if (!sta || vif->type != NL80211_IFTYPE_STATION)
+		return enable ? -EOPNOTSUPP : 0;
+	if (enable)
+		return mt6833_mcu_set_sta(phy, vif, sta, false);
+
+	req.sta_idx = ((struct mt7615_sta *)sta->drv_priv)->wcid.idx;
+	return mt76_mcu_send_msg(&phy->dev->mt76, MCU_CE_CMD(REMOVE_STA_RECORD), &req,
+				 sizeof(req), false);
 }
+
+/*
+ * MT6833, from bss_info_changed(BSS_CHANGED_ASSOC): the AP's station record with what the
+ * association brought (state 3, capabilities, AID), the BSS connected, and the power management
+ * told (MediaTek's CMD_INDICATE_PM_BSS_CONNECTED/ABORT).
+ */
+int mt6833_mcu_set_assoc(struct mt7615_phy *phy, struct ieee80211_vif *vif)
+{
+	struct mt7615_vif *mvif = (struct mt7615_vif *)vif->drv_priv;
+	struct mt76_dev *mdev = &phy->dev->mt76;
+	struct ieee80211_sta *sta;
+	struct {
+		u8 bss_idx;
+		u8 dtim;
+		__le16 aid;
+		__le16 beacon_int;
+		__le16 atim;
+		u8 uapsd;
+		u8 delivery_ac;
+		u8 trigger_ac;
+		u8 rsv;
+	} __packed conn = {
+		.bss_idx = mvif->mt76.idx,
+		.dtim = vif->bss_conf.dtim_period,
+		.aid = cpu_to_le16(vif->cfg.aid),
+		.beacon_int = cpu_to_le16(vif->bss_conf.beacon_int),
+	};
+	struct {
+		u8 bss_idx;
+		u8 rsv[3];
+	} __packed abort = {
+		.bss_idx = mvif->mt76.idx,
+	};
+	int ret;
+
+	if (vif->type != NL80211_IFTYPE_STATION)
+		return 0;
+
+	if (!vif->cfg.assoc) {
+		ret = mt6833_mcu_set_bss(phy, vif, NULL, false);
+		if (ret)
+			return ret;
+		return mt76_mcu_send_msg(mdev, MCU_CE_CMD(SET_BSS_ABORT), &abort, sizeof(abort),
+					 false);
+	}
+
+	rcu_read_lock();
+	sta = vif->bss_conf.bssid ? ieee80211_find_sta(vif, vif->bss_conf.bssid) : NULL;
+	ret = sta ? mt6833_mcu_set_sta(phy, vif, sta, true) : -ENOENT;
+	if (!ret)
+		ret = mt6833_mcu_set_bss(phy, vif, sta, true);
+	rcu_read_unlock();
+	if (ret)
+		return ret;
+
+	return mt76_mcu_send_msg(mdev, MCU_CE_CMD(SET_BSS_CONNECTED), &conn, sizeof(conn),
+				 false);
+}
+EXPORT_SYMBOL_GPL(mt6833_mcu_set_assoc);
 
 static int mt6833_mcu_ba(struct mt7615_dev *dev, struct ieee80211_ampdu_params *params,
 			 bool enable)
