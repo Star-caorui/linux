@@ -903,7 +903,7 @@
 			reg = <0 0x14007000 0 0x1000>;
 			interrupts = <GIC_SPI 257 IRQ_TYPE_LEVEL_HIGH 0>;
 			clocks = <&mmsys CLK_MM_DISP_RDMA0>;
-			mediatek,rdma-fifo-size = <5120>;
+			mediatek,rdma-fifo-size = <35840>;
 			power-domains = <&spm MT6833_POWER_DOMAIN_DISP>;
 			status = "disabled";
 		};
