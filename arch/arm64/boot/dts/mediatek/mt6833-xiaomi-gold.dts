@@ -149,6 +149,39 @@
 	};
 
 	/*
+	 * The MT6359P clock buffer output (XO_NFC) the MT6382 runs from, and
+	 * passes on to an NFC controller as its own clock output. The
+	 * bootloader turns it on; there is no clock buffer driver yet, so it is
+	 * described as always running.
+	 */
+	mt6382_xo: clock-mt6382-xo {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <26000000>;
+		clock-output-names = "xo_nfc";
+	};
+
+	/* The panel supplies behind GPIO131 and GPIO137, left on by the bootloader */
+	panel_dvdd: regulator-panel-dvdd {
+		compatible = "regulator-fixed";
+		regulator-name = "panel_dvdd";
+		gpio = <&pio 131 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+		regulator-boot-on;
+		startup-delay-us = <11000>;
+	};
+
+	/* never switched off by the stock kernel either */
+	panel_vci: regulator-panel-vci {
+		compatible = "regulator-fixed";
+		regulator-name = "panel_vci";
+		gpio = <&pio 137 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+		regulator-boot-on;
+		regulator-always-on;
+	};
+
+	/*
 	 * The regions the bootloader reserves for the firmware it starts (ATF, TEE, GenieZone, the
 	 * SSPM, MCUPM and SCP coprocessors, the modem) and for itself, as it reports them.
 	 */
@@ -185,8 +218,16 @@
 			no-map;
 		};
 
-		framebuffer@73c10000 {
+		/*
+		 * The bootloader's framebuffer, which the display keeps scanning
+		 * out when its driver takes over: 1:1 in the display's IOMMU
+		 * domain, so that it stays valid when the larb ports switch from
+		 * physical addresses to the M4U.
+		 */
+		lk_fb: framebuffer@73c10000 {
 			reg = <0x0 0x73c10000 0 0x1df0000>;
+			iommu-addresses = <&ovl0 0x0 0x73c10000 0x0 0x1df0000>,
+					  <&ovl_2l0 0x0 0x73c10000 0x0 0x1df0000>;
 			no-map;
 		};
 
@@ -942,6 +983,55 @@
 	pinctrl-0 = <&spi0_pins>;
 	mediatek,pad-select = <0>;
 	status = "okay";
+
+	/* The bridge between DSI0 and the panel, which sits behind it */
+	mt6382: dsi@0 {
+		compatible = "mediatek,mt6382";
+		reg = <0>;
+		spi-max-frequency = <55000000>;
+		spi-lsb-first;
+		clocks = <&mt6382_xo>;
+		reset-gpios = <&pio 20 GPIO_ACTIVE_LOW>;
+		#clock-cells = <0>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		ports {
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			port@0 {
+				reg = <0>;
+
+				mt6382_in: endpoint {
+					remote-endpoint = <&dsi0_out>;
+				};
+			};
+
+			port@1 {
+				reg = <1>;
+
+				mt6382_out: endpoint {
+					remote-endpoint = <&panel_in>;
+				};
+			};
+		};
+
+		panel@0 {
+			compatible = "xiaomi,gold-panel-n17-36-0f-0c";
+			reg = <0>;
+			vdd-supply = <&panel_dvdd>;
+			vddio-supply = <&mt6359p_vio18_reg>;
+			vci-supply = <&panel_vci>;
+			reset-gpios = <&pio 86 GPIO_ACTIVE_LOW>;
+
+			port {
+				panel_in: endpoint {
+					remote-endpoint = <&mt6382_out>;
+				};
+			};
+		};
+	};
 };
 
 &spmi {
@@ -1020,5 +1110,81 @@
 		/* in sixteenths of a pixel */
 		touchscreen-size-x = <17280>;
 		touchscreen-size-y = <38400>;
+	};
+};
+
+/*
+ * The display path: OVL0 and OVL_2L0 through RDMA0 to DSI0, which drives the
+ * MT6382, with its memory masters behind larb0 and larb1, the SMI and the M4U
+ */
+&smi_common {
+	status = "okay";
+};
+
+&larb0 {
+	status = "okay";
+};
+
+&larb1 {
+	status = "okay";
+};
+
+&iommu {
+	status = "okay";
+};
+
+&mutex {
+	status = "okay";
+};
+
+&ovl0 {
+	memory-region = <&lk_fb>;
+	status = "okay";
+};
+
+&ovl_2l0 {
+	memory-region = <&lk_fb>;
+	status = "okay";
+};
+
+&rdma0 {
+	status = "okay";
+};
+
+&color0 {
+	status = "okay";
+};
+
+&ccorr0 {
+	status = "okay";
+};
+
+&aal0 {
+	status = "okay";
+};
+
+&gamma0 {
+	status = "okay";
+};
+
+&postmask0 {
+	status = "okay";
+};
+
+&dither0 {
+	status = "okay";
+};
+
+&mipi_tx0 {
+	status = "okay";
+};
+
+&dsi0 {
+	status = "okay";
+
+	port {
+		dsi0_out: endpoint {
+			remote-endpoint = <&mt6382_in>;
+		};
 	};
 };
