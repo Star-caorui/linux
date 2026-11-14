@@ -234,6 +234,10 @@ struct mtk_dsi {
 	bool enabled;
 	bool lanes_ready;
 	u32 irq_data;
+	/* video to restart from the handler once the command is out */
+	bool irq_restore;
+	/* video stopped for a sequence of messages (MIPI_DSI_MSG_HOLD_CMD_MODE) */
+	bool cmd_held;
 	wait_queue_head_t irq_wait_queue;
 	const struct mtk_dsi_driver_data *driver_data;
 };
@@ -667,6 +671,11 @@ static irqreturn_t mtk_dsi_irq(int irq, void *dev_id)
 		} while (tmp & DSI_BUSY);
 
 		mtk_dsi_mask(dsi, DSI_INTSTA, status, 0);
+		if ((status & CMD_DONE_INT_FLAG) && dsi->irq_restore) {
+			dsi->irq_restore = false;
+			mtk_dsi_set_mode(dsi);
+			mtk_dsi_start(dsi);
+		}
 		mtk_dsi_irq_data_set(dsi, status);
 		wake_up_interruptible(&dsi->irq_wait_queue);
 	}
@@ -773,6 +782,8 @@ static void mtk_dsi_poweroff(struct mtk_dsi *dsi)
 
 	if (--dsi->refcount != 0)
 		return;
+
+	dsi->cmd_held = false;
 
 	/*
 	 * mtk_dsi_stop() and mtk_dsi_start() is asymmetric, since
@@ -1204,10 +1215,23 @@ static ssize_t mtk_dsi_host_transfer(struct mipi_dsi_host *host,
 	void *src_addr;
 	u8 irq_flag = CMD_DONE_INT_FLAG;
 	u32 dsi_mode;
+	bool hold = msg->flags & MIPI_DSI_MSG_HOLD_CMD_MODE;
+	bool held = dsi->cmd_held, armed = false;
 	int ret, i;
 
+	/*
+	 * In video mode, stop at the end of the frame and send in command
+	 * mode. A sequence of messages (MIPI_DSI_MSG_HOLD_CMD_MODE on all but
+	 * the last) stops video once, and the last one restarts it from the
+	 * interrupt handler as soon as it is out, within microseconds: as
+	 * MediaTek's kernel does in one GCE packet (mtk_dsi_stop_vdo_mode(),
+	 * the messages, mtk_dsi_start_vdo_mode()) for the MT6382 bridge, whose
+	 * transmitter has to start just ahead of the host's next frame.
+	 */
 	dsi_mode = readl(dsi->regs + DSI_MODE_CTRL);
-	if (dsi_mode & MODE) {
+	if (held)
+		dsi_mode |= MODE;
+	if ((dsi_mode & MODE) && !held) {
 		mtk_dsi_stop(dsi);
 		ret = mtk_dsi_switch_to_cmd_mode(dsi, VM_DONE_INT_FLAG, 500);
 		if (ret)
@@ -1219,6 +1243,10 @@ static ssize_t mtk_dsi_host_transfer(struct mipi_dsi_host *host,
 
 	mtk_dsi_lane_ready(dsi);
 
+	if (held && !hold && !MTK_DSI_HOST_IS_READ(msg->type)) {
+		WRITE_ONCE(dsi->irq_restore, true);
+		armed = true;
+	}
 	ret = mtk_dsi_host_send_cmd(dsi, msg, irq_flag);
 	if (ret)
 		goto restore_dsi_mode;
@@ -1257,7 +1285,13 @@ static ssize_t mtk_dsi_host_transfer(struct mipi_dsi_host *host,
 		 recv_cnt, *((u8 *)(msg->tx_buf)));
 
 restore_dsi_mode:
-	if (dsi_mode & MODE) {
+	if ((dsi_mode & MODE) && hold && ret >= 0) {
+		dsi->cmd_held = true;
+		return recv_cnt;
+	}
+	dsi->cmd_held = false;
+	/* unless the handler restarted video already */
+	if ((dsi_mode & MODE) && (!armed || xchg(&dsi->irq_restore, false))) {
 		mtk_dsi_set_mode(dsi);
 		mtk_dsi_start(dsi);
 	}
