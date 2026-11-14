@@ -205,6 +205,8 @@ struct mtk_dsi_driver_data {
 	bool cmdq_long_packet_ctl;
 	bool support_per_frame_lp;
 	bool has_skewcal;
+	/* D-PHY timing in byte clocks rounded up, as MediaTek's kernel computes it */
+	bool round_up_phy_timing;
 	u32 max_data_rate;
 };
 
@@ -259,6 +261,39 @@ static void mtk_dsi_mask(struct mtk_dsi *dsi, u32 offset, u32 mask, u32 data)
 	writel((temp & ~mask) | (data & mask), dsi->regs + offset);
 }
 
+/*
+ * The D-PHY timing MediaTek's kernel uses on the MT6833 (mediatek_v2/
+ * mtk_dsi.c, mtk_dsi_dphy_timconfig_v1(), with its MT6382 bridge): each
+ * parameter from its time in ns, rounded up to whole byte clocks. LK sets
+ * the link up the same way.
+ */
+static void mtk_dsi_phy_timing_round_up(struct mtk_dsi *dsi)
+{
+	struct mtk_phy_timing *t = &dsi->phy_timing;
+	u32 rate = DIV_ROUND_UP(dsi->data_rate, HZ_PER_MHZ);
+	u32 ui = 1000 / rate, cycle = 8000 / rate;
+
+	t->lpx = max(DIV_ROUND_UP(60, cycle), 2U);
+	t->da_hs_prepare = DIV_ROUND_UP(64 + 5 * ui, cycle) + 1;
+	t->da_hs_zero = DIV_ROUND_UP(200 + 10 * ui, cycle);
+	if (t->da_hs_zero > t->da_hs_prepare)
+		t->da_hs_zero -= t->da_hs_prepare;
+	t->da_hs_zero = max(t->da_hs_zero, 1U);
+	t->da_hs_trail = 80 + 4 * ui > cycle ?
+			 DIV_ROUND_UP(80 + 4 * ui, cycle) + 1 : 2;
+	t->da_hs_exit = 2 * t->lpx;
+	t->ta_go = 4 * t->lpx;
+	t->ta_get = 5 * t->lpx;
+	t->ta_sure = 3 * t->lpx / 2;
+	t->clk_hs_prepare = DIV_ROUND_UP(80, cycle);
+	t->clk_hs_zero = DIV_ROUND_UP(400, cycle);
+	t->clk_hs_zero = t->clk_hs_zero > t->clk_hs_prepare ?
+			 t->clk_hs_zero - t->clk_hs_prepare : 1;
+	t->clk_hs_trail = max(DIV_ROUND_UP(100, cycle) + 1, 2U);
+	t->clk_hs_exit = 2 * t->lpx;
+	t->clk_hs_post = DIV_ROUND_UP(96 + 52 * ui, cycle);
+}
+
 static void mtk_dsi_phy_timconfig(struct mtk_dsi *dsi)
 {
 	u32 timcon0, timcon1, timcon2, timcon3;
@@ -281,6 +316,9 @@ static void mtk_dsi_phy_timconfig(struct mtk_dsi *dsi)
 	timing->clk_hs_trail = timing->clk_hs_prepare;
 	timing->clk_hs_zero = timing->clk_hs_trail * 4;
 	timing->clk_hs_exit = 2 * timing->clk_hs_trail;
+
+	if (dsi->driver_data->round_up_phy_timing)
+		mtk_dsi_phy_timing_round_up(dsi);
 
 	timcon0 = FIELD_PREP(LPX, timing->lpx) |
 		  FIELD_PREP(HS_PREP, timing->da_hs_prepare) |
@@ -1397,6 +1435,7 @@ static const struct mtk_dsi_driver_data mt6833_dsi_driver_data = {
 	.has_shadow_ctl = true,
 	.has_size_ctl = true,
 	.has_skewcal = true,
+	.round_up_phy_timing = true,
 	.max_data_rate = 2500000000U,
 };
 
