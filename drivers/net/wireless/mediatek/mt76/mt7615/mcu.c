@@ -498,6 +498,37 @@ mt7615_mcu_rx_log_message(struct mt7615_dev *dev, struct sk_buff *skb)
 		   (int)(skb->len - sizeof(*rxd)), data);
 }
 
+/* DEBUG: MT6833's firmware log (gen4m's EVENT_DEBUG_MSG) */
+static void
+mt6833_mcu_rx_debug_msg(struct mt7615_dev *dev, struct sk_buff *skb)
+{
+	struct {
+		__le16 id;
+		u8 type;	/* 3: text */
+		u8 flags;
+		__le32 value;
+		__le16 size;
+		u8 rsv[2];
+		u8 msg[];
+	} __packed *m;
+	int len;
+
+	skb_pull(skb, sizeof(struct mt7615_mcu_rxd));
+	if (skb->len < sizeof(*m))
+		return;
+	m = (void *)skb->data;
+	len = min_t(int, le16_to_cpu(m->size), skb->len - sizeof(*m));
+	if (m->type == 3) {
+		while (len && (m->msg[len - 1] == '\n' || !m->msg[len - 1]))
+			len--;
+		dev_info(dev->mt76.dev, "fw: %.*s\n", len, m->msg);
+	} else {
+		dev_info(dev->mt76.dev, "fw msg %u type %u value %08x: %*ph\n",
+			 le16_to_cpu(m->id), m->type, le32_to_cpu(m->value),
+			 min(len, 32), m->msg);
+	}
+}
+
 static void
 mt7615_mcu_rx_ext_event(struct mt7615_dev *dev, struct sk_buff *skb)
 {
@@ -634,6 +665,10 @@ mt7615_mcu_rx_unsolicited_event(struct mt7615_dev *dev, struct sk_buff *skb)
 		mt76_connac_mcu_coredump_event(&dev->mt76, skb,
 					       &dev->coredump);
 		return;
+	case MT6833_EVENT_DEBUG_MSG:
+		if (is_mt6833(&dev->mt76))
+			mt6833_mcu_rx_debug_msg(dev, skb);
+		break;
 	default:
 		break;
 	}
@@ -655,6 +690,7 @@ void mt7615_mcu_rx_event(struct mt7615_dev *dev, struct sk_buff *skb)
 	    rxd->eid == MCU_EVENT_COREDUMP ||
 	    rxd->eid == MCU_EVENT_ROC ||
 	    (is_mt6833(&dev->mt76) && rxd->eid == MT6833_EVENT_SLEEPY_INFO) ||
+	    (is_mt6833(&dev->mt76) && rxd->eid == MT6833_EVENT_DEBUG_MSG) ||
 	    !rxd->seq)
 		mt7615_mcu_rx_unsolicited_event(dev, skb);
 	else
@@ -2171,6 +2207,11 @@ int mt7615_mcu_set_rate_txpower(struct mt7615_phy *phy)
 }
 EXPORT_SYMBOL_GPL(mt7615_mcu_set_rate_txpower);
 
+/* DEBUG: MT6833 firmware log to the host: 2 (as mt76 fw_debug) or 0 */
+static uint mt6833_fwlog;
+module_param(mt6833_fwlog, uint, 0444);
+MODULE_PARM_DESC(mt6833_fwlog, "MT6833 debug: firmware log to the host (FW_LOG_2_HOST value, 2 works)");
+
 int mt7615_mcu_init(struct mt7615_dev *dev)
 {
 	static const struct mt76_mcu_ops mt7615_mcu_ops = {
@@ -2213,7 +2254,7 @@ int mt7615_mcu_init(struct mt7615_dev *dev)
 			return ret;
 	}
 
-	ret = mt7615_mcu_fw_log_2_host(dev, 0);
+	ret = mt7615_mcu_fw_log_2_host(dev, is_mt6833(&dev->mt76) ? mt6833_fwlog : 0);
 	if (ret || !is_mt6833(&dev->mt76))
 		return ret;
 

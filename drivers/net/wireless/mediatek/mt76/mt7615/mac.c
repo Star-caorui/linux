@@ -1660,6 +1660,10 @@ static void mt6833_rx_fixup(struct mt7615_dev *dev, struct sk_buff *skb,
 	if (type == PKT_TYPE_RX_EVENT && skb->len >= 28) {
 		const u8 *e = skb->data + 16;	/* len, type, eid, seq, rsv, ext_eid, ... */
 
+		/* not the firmware log: it has its own lines */
+		if (e[4] == MT6833_EVENT_DEBUG_MSG ||
+		    (e[4] == MCU_EVENT_EXT && e[7] == MCU_EXT_EVENT_FW_LOG_2_HOST))
+			return;
 		dev_info(dev->mt76.dev, "mcu rx eid %02x seq %u len %u: %*ph\n", e[4], e[5],
 			 get_unaligned_le16(e), min_t(int, skb->len - 28, 16), e + 12);
 	}

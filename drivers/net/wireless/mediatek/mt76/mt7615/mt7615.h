@@ -58,6 +58,8 @@
 #define MT6833_NVRAM_SIZE		2048
 /* MT6833's firmware tells the host it may sleep, with sequence numbers of its own */
 #define MT6833_EVENT_SLEEPY_INFO	0x07
+/* MT6833's firmware log (EVENT_ID_DEBUG_MSG), when sent to the host */
+#define MT6833_EVENT_DEBUG_MSG		0x27
 /* CONN_HIF_ON_LPCTL (MT_CONN_HIF_ON_LPCTL), for use before the register map is set up */
 #define MT6833_LPCTL			0x7000
 /* the connsys CPU sees its reserved memory (EMI) at this address */
