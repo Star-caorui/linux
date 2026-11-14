@@ -9,6 +9,7 @@
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/platform_device.h>
+#include <linux/pm_runtime.h>
 #include <linux/soc/mediatek/mtk-cmdq.h>
 
 #include "mtk_crtc.h"
@@ -67,8 +68,16 @@ struct mtk_disp_gamma {
 int mtk_gamma_clk_enable(struct device *dev)
 {
 	struct mtk_disp_gamma *gamma = dev_get_drvdata(dev);
+	int ret;
 
-	return clk_prepare_enable(gamma->clk);
+	ret = pm_runtime_resume_and_get(dev);
+	if (ret)
+		return ret;
+
+	ret = clk_prepare_enable(gamma->clk);
+	if (ret)
+		pm_runtime_put(dev);
+	return ret;
 }
 
 void mtk_gamma_clk_disable(struct device *dev)
@@ -76,6 +85,7 @@ void mtk_gamma_clk_disable(struct device *dev)
 	struct mtk_disp_gamma *gamma = dev_get_drvdata(dev);
 
 	clk_disable_unprepare(gamma->clk);
+	pm_runtime_put(dev);
 }
 
 unsigned int mtk_gamma_get_lut_size(struct device *dev)
@@ -280,6 +290,10 @@ static int mtk_disp_gamma_probe(struct platform_device *pdev)
 
 	priv->data = of_device_get_match_data(dev);
 	platform_set_drvdata(pdev, priv);
+
+	ret = devm_pm_runtime_enable(dev);
+	if (ret)
+		return ret;
 
 	ret = component_add(dev, &mtk_disp_gamma_component_ops);
 	if (ret)

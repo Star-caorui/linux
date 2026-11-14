@@ -9,6 +9,7 @@
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/platform_device.h>
+#include <linux/pm_runtime.h>
 #include <linux/soc/mediatek/mtk-cmdq.h>
 
 #include "mtk_crtc.h"
@@ -53,8 +54,16 @@ struct mtk_disp_aal {
 int mtk_aal_clk_enable(struct device *dev)
 {
 	struct mtk_disp_aal *aal = dev_get_drvdata(dev);
+	int ret;
 
-	return clk_prepare_enable(aal->clk);
+	ret = pm_runtime_resume_and_get(dev);
+	if (ret)
+		return ret;
+
+	ret = clk_prepare_enable(aal->clk);
+	if (ret)
+		pm_runtime_put(dev);
+	return ret;
 }
 
 void mtk_aal_clk_disable(struct device *dev)
@@ -62,6 +71,7 @@ void mtk_aal_clk_disable(struct device *dev)
 	struct mtk_disp_aal *aal = dev_get_drvdata(dev);
 
 	clk_disable_unprepare(aal->clk);
+	pm_runtime_put(dev);
 }
 
 void mtk_aal_config(struct device *dev, unsigned int w,
@@ -192,6 +202,10 @@ static int mtk_disp_aal_probe(struct platform_device *pdev)
 
 	priv->data = of_device_get_match_data(dev);
 	platform_set_drvdata(pdev, priv);
+
+	ret = devm_pm_runtime_enable(dev);
+	if (ret)
+		return ret;
 
 	ret = component_add(dev, &mtk_disp_aal_component_ops);
 	if (ret)
