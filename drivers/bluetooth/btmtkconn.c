@@ -15,6 +15,7 @@
  * reserved memory.
  */
 #include <linux/clk.h>
+#include <linux/debugfs.h>
 #include <linux/delay.h>
 #include <linux/firmware.h>
 #include <linux/io.h>
@@ -666,6 +667,47 @@ static void put_connsys_node(void *np)
 	of_node_put(np);
 }
 
+/*
+ * DEBUG: connsys' reserved memory, read-only, for post-mortems: the RAM code and data the connsys
+ * CPUs run from, their state after an exception, the core dump area.
+ */
+static ssize_t btmtkconn_emi_read(struct file *file, char __user *ubuf, size_t count,
+				  loff_t *ppos)
+{
+	struct btmtkconn *bc = file->private_data;
+	size_t len;
+	void *emi;
+
+	if (*ppos < 0 || *ppos >= bc->emi_size)
+		return 0;
+	len = min_t(size_t, count, bc->emi_size - *ppos);
+	len = min_t(size_t, len, SZ_1M);
+	emi = memremap(bc->emi_phys + *ppos, len, MEMREMAP_WC);
+	if (!emi)
+		return -ENOMEM;
+	if (copy_to_user(ubuf, emi, len)) {
+		memunmap(emi);
+		return -EFAULT;
+	}
+	memunmap(emi);
+	*ppos += len;
+	return len;
+}
+
+static const struct file_operations btmtkconn_emi_fops = {
+	.owner = THIS_MODULE,
+	.open = simple_open,
+	.read = btmtkconn_emi_read,
+	.llseek = default_llseek,
+};
+
+static void btmtkconn_debugfs(struct btmtkconn *bc)
+{
+	struct dentry *d = debugfs_create_dir("btmtkconn", NULL);
+
+	debugfs_create_file_size("emi", 0400, d, bc, &btmtkconn_emi_fops, bc->emi_size);
+}
+
 static int btmtkconn_probe(struct serdev_device *serdev)
 {
 	struct device *dev = &serdev->dev;
@@ -779,6 +821,7 @@ static int btmtkconn_probe(struct serdev_device *serdev)
 	mutex_lock(&connsys_list_lock);
 	list_add_tail(&bc->cs.node, &connsys_list);
 	mutex_unlock(&connsys_list_lock);
+	btmtkconn_debugfs(bc);
 	return 0;
 }
 
