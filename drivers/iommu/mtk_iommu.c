@@ -35,6 +35,8 @@
 
 #include <dt-bindings/memory/mtk-memory-port.h>
 
+#include "dma-iommu.h"
+
 #define REG_MMU_PT_BASE_ADDR			0x000
 
 #define REG_MMU_INVALIDATE			0x020
@@ -1053,6 +1055,9 @@ static void mtk_iommu_get_resv_regions(struct device *dev,
 	const struct mtk_iommu_iova_region *resv, *curdom;
 	struct iommu_resv_region *region;
 	int prot = IOMMU_WRITE | IOMMU_READ;
+
+	/* The regions in the devicetree, e.g. a bootloader framebuffer to map 1:1 */
+	iommu_dma_get_resv_regions(dev, head);
 
 	if ((int)regionid < 0)
 		return;
