@@ -708,6 +708,18 @@ mt7615_mcu_rx_unsolicited_event(struct mt7615_dev *dev, struct sk_buff *skb)
 		if (is_mt6833(&dev->mt76))
 			mt6833_mcu_rx_debug_msg(dev, skb);
 		break;
+	case MT6833_EVENT_SLEEPY_INFO:
+		/*
+		 * the firmware wants to sleep: let it have the WMAC as soon as the host is idle
+		 * (MediaTek's gen4m sets firmware own on this), rather than only after the next
+		 * command, which may not come before the firmware sleeps on its own
+		 */
+		if (is_mt6833(&dev->mt76) &&
+		    skb->len > sizeof(struct mt7615_mcu_rxd) &&
+		    skb->data[sizeof(struct mt7615_mcu_rxd)] &&
+		    test_bit(MT76_STATE_MCU_RUNNING, &dev->mphy.state))
+			mt76_connac_power_save_sched(&dev->mphy, &dev->pm);
+		break;
 	default:
 		break;
 	}
