@@ -11,6 +11,7 @@
 #include <linux/of_address.h>
 #include <linux/of_platform.h>
 #include <linux/platform_device.h>
+#include <linux/pm_runtime.h>
 #include <linux/soc/mediatek/mtk-cmdq.h>
 #include <drm/drm_print.h>
 
@@ -620,6 +621,40 @@ int mtk_find_possible_crtcs(struct drm_device *drm, struct device *dev)
 
 	return ret;
 }
+
+/*
+ * The blocks of the display pipeline that have no driver of their own are
+ * driven by mediatek-drm through mtk_ddp_comp_init(). Bind them to a driver
+ * that does nothing but enable runtime PM: without one, fw_devlink waits for
+ * them for good, so the power domain provider never gets its sync_state()
+ * and keeps every domain that was on at boot on; and the power domain they
+ * sit in can be turned off while they are idle. mediatek-drm powers the
+ * domain through the pipeline's first block.
+ */
+static int mtk_ddp_comp_simple_probe(struct platform_device *pdev)
+{
+	return devm_pm_runtime_enable(&pdev->dev);
+}
+
+static const struct of_device_id mtk_ddp_comp_simple_dt_ids[] = {
+	{ .compatible = "mediatek,mt8167-disp-dither" },
+	{ .compatible = "mediatek,mt8173-disp-od" },
+	{ .compatible = "mediatek,mt8173-disp-ufoe" },
+	{ .compatible = "mediatek,mt8173-disp-wdma" },
+	{ .compatible = "mediatek,mt8183-disp-dither" },
+	{ .compatible = "mediatek,mt8192-disp-postmask" },
+	{ .compatible = "mediatek,mt8195-disp-dsc" },
+	{ }
+};
+MODULE_DEVICE_TABLE(of, mtk_ddp_comp_simple_dt_ids);
+
+struct platform_driver mtk_ddp_comp_simple_driver = {
+	.probe = mtk_ddp_comp_simple_probe,
+	.driver = {
+		.name = "mediatek-disp-simple",
+		.of_match_table = mtk_ddp_comp_simple_dt_ids,
+	},
+};
 
 static void mtk_ddp_comp_put_device(void *_dev)
 {
