@@ -263,8 +263,6 @@ static const struct scpsys_domain_data scpsys_domain_data_mt6833[] = {
 					MT8192_TOP_AXI_PROT_EN_MM_2_CLR,
 					MT8192_TOP_AXI_PROT_EN_MM_2_STA1),
 		},
-		/* On at handover: the bootloader scans its framebuffer out through it */
-		.caps = MTK_SCPD_KEEP_DEFAULT_OFF,
 	},
 	[MT6833_POWER_DOMAIN_AUDIO] = {
 		.name = "audio",
