@@ -34,6 +34,7 @@ struct panel_info {
 
 	struct gpio_desc *reset_gpio;
 	struct regulator_bulk_data *supplies;
+	bool supplies_enabled;
 };
 
 struct panel_desc {
@@ -48,8 +49,21 @@ struct panel_desc {
 	const struct drm_display_mode *modes;
 	unsigned int num_modes;
 	int (*init_sequence)(struct panel_info *pinfo);
+	void (*reset)(struct panel_info *pinfo);
 
 	struct drm_dsc_config dsc;
+	/* lane rate the panel expects, for a DSI host that cannot derive it */
+	unsigned long hs_rate;
+
+	const struct backlight_ops *bl_ops;
+	unsigned int max_brightness;
+	unsigned int brightness;
+
+	/*
+	 * Keep the panel's supplies on from probe when the bootloader left
+	 * them on, so that its picture stays until the first modeset.
+	 */
+	bool boot_on;
 };
 
 static const struct regulator_bulk_data panel_supplies[] = {
@@ -233,17 +247,24 @@ static int icna35xx_prepare(struct drm_panel *panel)
 	struct panel_info *pinfo = to_panel_info(panel);
 	int ret;
 
-	ret = regulator_bulk_enable(ARRAY_SIZE(panel_supplies), pinfo->supplies);
-	if (ret < 0) {
-		dev_err(panel->dev, "failed to enable regulators: %d\n", ret);
-		return ret;
+	if (!pinfo->supplies_enabled) {
+		ret = regulator_bulk_enable(ARRAY_SIZE(panel_supplies), pinfo->supplies);
+		if (ret < 0) {
+			dev_err(panel->dev, "failed to enable regulators: %d\n", ret);
+			return ret;
+		}
+		pinfo->supplies_enabled = true;
 	}
 
-	icna35xx_reset(pinfo);
+	if (pinfo->desc->reset)
+		pinfo->desc->reset(pinfo);
+	else
+		icna35xx_reset(pinfo);
 
 	ret = pinfo->desc->init_sequence(pinfo);
 	if (ret < 0) {
 		regulator_bulk_disable(ARRAY_SIZE(panel_supplies), pinfo->supplies);
+		pinfo->supplies_enabled = false;
 		dev_err(panel->dev, "failed to initialize panel: %d\n", ret);
 		return ret;
 	}
@@ -271,7 +292,10 @@ static int icna35xx_unprepare(struct drm_panel *panel)
 	struct panel_info *pinfo = to_panel_info(panel);
 
 	gpiod_set_value_cansleep(pinfo->reset_gpio, 1);
-	regulator_bulk_disable(ARRAY_SIZE(panel_supplies), pinfo->supplies);
+	if (pinfo->supplies_enabled) {
+		regulator_bulk_disable(ARRAY_SIZE(panel_supplies), pinfo->supplies);
+		pinfo->supplies_enabled = false;
+	}
 
 	return 0;
 }
@@ -280,8 +304,27 @@ static int icna35xx_get_modes(struct drm_panel *panel,
 			       struct drm_connector *connector)
 {
 	struct panel_info *pinfo = to_panel_info(panel);
+	const struct panel_desc *desc = pinfo->desc;
+	struct drm_display_mode *mode;
+	unsigned int i;
 
-	return drm_connector_helper_get_modes_fixed(connector, pinfo->desc->modes);
+	pinfo->connector = connector;
+
+	for (i = 0; i < desc->num_modes; i++) {
+		mode = drm_mode_duplicate(connector->dev, &desc->modes[i]);
+		if (!mode)
+			return -ENOMEM;
+		drm_mode_set_name(mode);
+		mode->type = DRM_MODE_TYPE_DRIVER;
+		if (i == 0)
+			mode->type |= DRM_MODE_TYPE_PREFERRED;
+		drm_mode_probed_add(connector, mode);
+	}
+
+	connector->display_info.width_mm = desc->width_mm;
+	connector->display_info.height_mm = desc->height_mm;
+
+	return desc->num_modes;
 }
 
 static enum drm_panel_orientation icna35xx_get_orientation(struct drm_panel *panel)
@@ -334,17 +377,44 @@ static const struct backlight_ops icna35xx_bl_ops = {
 	.get_brightness = icna35xx_bl_get_brightness,
 };
 
-static struct backlight_device *icna35xx_create_backlight(struct mipi_dsi_device *dsi)
+static struct backlight_device *icna35xx_create_backlight(struct mipi_dsi_device *dsi,
+							  const struct panel_desc *desc)
 {
 	struct device *dev = &dsi->dev;
 	const struct backlight_properties props = {
 		.type = BACKLIGHT_RAW,
-		.brightness = 4096,
-		.max_brightness = 4096,
+		.brightness = desc->brightness ?: 4096,
+		.max_brightness = desc->max_brightness ?: 4096,
 	};
 
 	return devm_backlight_device_register(dev, dev_name(dev), dev, dsi,
-					      &icna35xx_bl_ops, &props);
+					      desc->bl_ops ?: &icna35xx_bl_ops, &props);
+}
+
+static void icna35xx_release_power(void *data)
+{
+	struct panel_info *pinfo = data;
+
+	if (pinfo->supplies_enabled)
+		regulator_bulk_disable(ARRAY_SIZE(panel_supplies), pinfo->supplies);
+}
+
+/* Hold the supplies the bootloader left on, so that they stay on */
+static int icna35xx_hold_boot_power(struct device *dev, struct panel_info *pinfo)
+{
+	unsigned int i;
+	int ret;
+
+	for (i = 0; i < ARRAY_SIZE(panel_supplies); i++)
+		if (regulator_is_enabled(pinfo->supplies[i].consumer) <= 0)
+			return 0;
+
+	ret = regulator_bulk_enable(ARRAY_SIZE(panel_supplies), pinfo->supplies);
+	if (ret)
+		return ret;
+	pinfo->supplies_enabled = true;
+
+	return devm_add_action_or_reset(dev, icna35xx_release_power, pinfo);
 }
 
 static int icna35xx_probe(struct mipi_dsi_device *dsi)
@@ -372,6 +442,12 @@ static int icna35xx_probe(struct mipi_dsi_device *dsi)
 	if (!pinfo->desc)
 		return -ENODEV;
 
+	if (pinfo->desc->boot_on) {
+		ret = icna35xx_hold_boot_power(dev, pinfo);
+		if (ret)
+			return dev_err_probe(dev, ret, "failed to keep the supplies on\n");
+	}
+
 	pinfo->dsi = dsi;
 	mipi_dsi_set_drvdata(dsi, pinfo);
 
@@ -383,7 +459,7 @@ static int icna35xx_probe(struct mipi_dsi_device *dsi)
 
 	pinfo->panel.prepare_prev_first = true;
 
-	pinfo->panel.backlight = icna35xx_create_backlight(dsi);
+	pinfo->panel.backlight = icna35xx_create_backlight(dsi, pinfo->desc);
 	if (IS_ERR(pinfo->panel.backlight))
 		return dev_err_probe(dev, PTR_ERR(pinfo->panel.backlight),
 				     "Failed to create backlight\n");
@@ -396,6 +472,7 @@ static int icna35xx_probe(struct mipi_dsi_device *dsi)
 	pinfo->dsi->format = pinfo->desc->format;
 	pinfo->dsi->mode_flags = pinfo->desc->mode_flags;
 	pinfo->dsi->dsc = &pinfo->desc->dsc;
+	pinfo->dsi->hs_rate = pinfo->desc->hs_rate;
 
 	return devm_mipi_dsi_attach(dev, dsi);
 }
