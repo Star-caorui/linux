@@ -221,6 +221,20 @@ config DRM_LVDS_CODEC
 	  Support for transparent LVDS encoders and decoders that don't
 	  require any configuration.
 
+config DRM_MEDIATEK_MT6382
+	tristate "MediaTek MT6382 DSI to DSI bridge with DSC"
+	depends on COMMON_CLK && OF && SPI
+	select DRM_DISPLAY_DSC_HELPER
+	select DRM_DISPLAY_HELPER
+	select DRM_KMS_HELPER
+	select DRM_MIPI_DSI
+	select DRM_PANEL_BRIDGE
+	select REGMAP
+	help
+	  Driver for the MediaTek MT6382, which takes uncompressed video
+	  from a DSI host and sends it on to a DSC panel over DSI, as on
+	  the Xiaomi Redmi Note 13 5G. It is configured over SPI.
+
 config DRM_MEGACHIPS_STDPXXXX_GE_B850V3_FW
 	tristate "MegaChips stdp4028-ge-b850v3-fw and stdp2690-ge-b850v3-fw"
 	depends on OF
