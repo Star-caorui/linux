@@ -700,6 +700,8 @@ static int scpsys_power_on(struct generic_pm_domain *genpd)
 	struct scpsys *scpsys = pd->scpsys;
 	int ret;
 
+	pr_info("TEST pd %s on\n", genpd->name);
+
 	ret = scpsys_regulator_enable(pd->supply);
 	if (ret)
 		return ret;
@@ -838,8 +840,10 @@ static int scpsys_power_off_internal(struct scpsys_domain *pd)
 static int scpsys_power_off(struct generic_pm_domain *genpd)
 {
 	struct scpsys_domain *pd = container_of(genpd, struct scpsys_domain, genpd);
+	int ret = scpsys_power_off_internal(pd);
 
-	return scpsys_power_off_internal(pd);
+	pr_info("TEST pd %s off: %d\n", genpd->name, ret);
+	return ret;
 }
 
 static struct
