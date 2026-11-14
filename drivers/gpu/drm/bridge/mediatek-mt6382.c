@@ -21,6 +21,8 @@
 #include <linux/bitfield.h>
 #include <linux/clk.h>
 #include <linux/clk-provider.h>
+#include <linux/debugfs.h>
+#include <linux/uaccess.h>
 #include <linux/delay.h>
 #include <linux/gpio/consumer.h>
 #include <linux/iopoll.h>
@@ -44,6 +46,10 @@
 #include <drm/drm_of.h>
 #include <drm/drm_panel.h>
 #include <drm/drm_print.h>
+
+/* TEST: the SoC's DSI host, for its vertical state (DSI_STATE_DBG7) */
+#define AP_DSI_BASE	0x14013000
+#define AP_DBG7		0x164
 
 /* SPI slave protocol, spi_slave.c:29-55 */
 #define SPISLV_CMD_RS			0x06	/* read status */
@@ -2514,6 +2520,154 @@ static const struct drm_bridge_funcs mt6382_bridge_funcs = {
  * Probe
  */
 
+/* TEST: does the TX go through frames (VFP start) and does it underrun? */
+static int mt6382_frames_show(struct seq_file *m, void *unused)
+{
+	struct mt6382 *ctx = m->private;
+	u32 a = 0, b = 0;
+
+	mutex_lock(&ctx->lock);
+	if (ctx->state != MT6382_OFF) {
+		regmap_set_bits(ctx->regmap, TX_INTEN, BIT(10));
+		regmap_write(ctx->regmap, TX_INTSTA, TX_INT_BUSY);
+		msleep(60);
+		regmap_read(ctx->regmap, TX_INTSTA, &a);
+		regmap_write(ctx->regmap, TX_INTSTA, TX_INT_BUSY);
+		msleep(60);
+		regmap_read(ctx->regmap, TX_INTSTA, &b);
+	}
+	mutex_unlock(&ctx->lock);
+	seq_printf(m, "state %d vfp %d/%d underrun %d/%d intsta %08x %08x\n", ctx->state,
+		   !!(a & BIT(10)), !!(b & BIT(10)), !!(a & BIT(12)), !!(b & BIT(12)), a, b);
+	return 0;
+}
+DEFINE_SHOW_ATTRIBUTE(mt6382_frames);
+
+/*
+ * TEST: phase between the SoC's DSI host and the TX. The host's DSI_STATE_DBG7
+ * (0x14013164) is read directly; its run-length encoding over 40 ms goes out
+ * first. Then, 30 times 100 ms apart: the start of the host's shortest
+ * vertical state (taken as VSA) and, over SPI, the TX's next VFP start
+ * (INTSTA bit 10). The difference drifts if the two lines differ in length.
+ */
+static u64 mt6382_ap_vsa(void __iomem *ap, u64 limit_ns)
+{
+	u64 t0 = ktime_get_ns(), start = t0, now;
+	u32 prev = readl(ap + AP_DBG7) >> 8, v;
+
+	for (;;) {
+		now = ktime_get_ns();
+		if (now - t0 > limit_ns)
+			return 0;
+		v = readl(ap + AP_DBG7) >> 8;
+		if (v == prev)
+			continue;
+		/* a run shorter than 12 us that is not the first one seen */
+		if (start != t0 && now - start < 12000)
+			return start;
+		prev = v;
+		start = now;
+	}
+}
+
+static int mt6382_phase_show(struct seq_file *m, void *unused)
+{
+	struct mt6382 *ctx = m->private;
+	void __iomem *ap = ioremap(AP_DSI_BASE, 0x1000);
+	u32 runs_v[64], runs_us[64], v, prev, sta;
+	u64 t0, start, now, vsa, tx;
+	unsigned int n = 0, i;
+
+	if (!ap)
+		return -ENOMEM;
+
+	t0 = start = ktime_get_ns();
+	prev = readl(ap + AP_DBG7);
+	while (n < ARRAY_SIZE(runs_v) && (now = ktime_get_ns()) - t0 < 40000000) {
+		v = readl(ap + AP_DBG7);
+		if (v == prev)
+			continue;
+		runs_v[n] = prev;
+		runs_us[n++] = (now - start) / 1000;
+		prev = v;
+		start = now;
+	}
+	seq_puts(m, "ap dbg7 runs (value:us):");
+	for (i = 0; i < n; i++)
+		seq_printf(m, " %x:%u", runs_v[i], runs_us[i]);
+	seq_putc(m, '\n');
+
+	mutex_lock(&ctx->lock);
+	if (ctx->state == MT6382_OFF)
+		goto out;
+	regmap_set_bits(ctx->regmap, TX_INTEN, BIT(10));
+	for (i = 0; i < 30; i++) {
+		vsa = mt6382_ap_vsa(ap, 40000000);
+		regmap_write(ctx->regmap, TX_INTSTA, TX_INT_BUSY);
+		tx = 0;
+		while (ktime_get_ns() - vsa < 40000000) {
+			if (regmap_read(ctx->regmap, TX_INTSTA, &sta))
+				break;
+			if (sta & BIT(10)) {
+				tx = ktime_get_ns();
+				break;
+			}
+		}
+		seq_printf(m, "%s%lld", i ? " " : "phase us:",
+			   vsa && tx ? (s64)(tx - vsa) / 1000 : -1LL);
+		msleep(100);
+	}
+	seq_putc(m, '\n');
+out:
+	mutex_unlock(&ctx->lock);
+	iounmap(ap);
+	return 0;
+}
+DEFINE_SHOW_ATTRIBUTE(mt6382_phase);
+
+/* TEST: "addr" reads, "addr val" writes one bridge register; read shows the last */
+static u32 mt6382_dbg_addr, mt6382_dbg_val;
+static ssize_t mt6382_reg_dbg_write(struct file *f, const char __user *ubuf, size_t len,
+				    loff_t *ppos)
+{
+	struct mt6382 *ctx = file_inode(f)->i_private;
+	char buf[40] = { };
+	int n, ret;
+
+	if (len >= sizeof(buf))
+		return -EINVAL;
+	if (copy_from_user(buf, ubuf, len))
+		return -EFAULT;
+	n = sscanf(buf, "%x %x", &mt6382_dbg_addr, &mt6382_dbg_val);
+	if (n == 2)
+		ret = regmap_write(ctx->regmap, mt6382_dbg_addr, mt6382_dbg_val);
+	else if (n == 1)
+		ret = regmap_read(ctx->regmap, mt6382_dbg_addr, &mt6382_dbg_val);
+	else
+		return -EINVAL;
+	return ret ? ret : len;
+}
+
+static ssize_t mt6382_reg_dbg_read(struct file *f, char __user *ubuf, size_t len, loff_t *ppos)
+{
+	char buf[40];
+	int n = scnprintf(buf, sizeof(buf), "%05x %08x\n", mt6382_dbg_addr, mt6382_dbg_val);
+
+	return simple_read_from_buffer(ubuf, len, ppos, buf, n);
+}
+
+static const struct file_operations mt6382_reg_dbg_fops = {
+	.write = mt6382_reg_dbg_write,
+	.read = mt6382_reg_dbg_read,
+};
+
+static void mt6382_debugfs_remove(void *data)
+{
+	debugfs_remove_recursive(data);
+}
+
+
+
 static int mt6382_probe(struct spi_device *spi)
 {
 	struct device *dev = &spi->dev;
@@ -2581,6 +2735,17 @@ static int mt6382_probe(struct spi_device *spi)
 
 	ctx->host.dev = dev;
 	ctx->host.ops = &mt6382_host_ops;
+
+	{
+		struct dentry *d = debugfs_create_dir("mt6382", NULL);
+
+		debugfs_create_file("frames", 0400, d, ctx, &mt6382_frames_fops);
+		debugfs_create_file("phase", 0400, d, ctx, &mt6382_phase_fops);
+		debugfs_create_file("reg", 0600, d, ctx, &mt6382_reg_dbg_fops);
+		ret = devm_add_action_or_reset(dev, mt6382_debugfs_remove, d);
+		if (ret)
+			return ret;
+	}
 
 	return mipi_dsi_host_register(&ctx->host);
 }
