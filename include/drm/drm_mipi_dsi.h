@@ -20,6 +20,8 @@ struct drm_dsc_picture_parameter_set;
 #define MIPI_DSI_MSG_REQ_ACK	BIT(0)
 /* use Low Power Mode to transmit message */
 #define MIPI_DSI_MSG_USE_LPM	BIT(1)
+/* video mode hosts: stay in command mode after this message, for a sequence */
+#define MIPI_DSI_MSG_HOLD_CMD_MODE	BIT(2)
 
 /**
  * struct mipi_dsi_msg - read/write DSI buffer
