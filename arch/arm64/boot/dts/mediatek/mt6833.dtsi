@@ -261,8 +261,13 @@
 
 				power-domain@MT6833_POWER_DOMAIN_DISP {
 					reg = <MT6833_POWER_DOMAIN_DISP>;
-					clocks = <&topckgen CLK_TOP_DISP_SEL>;
-					clock-names = "disp";
+					clocks = <&topckgen CLK_TOP_DISP_SEL>,
+						 <&mmsys CLK_MM_SMI_INFRA>,
+						 <&mmsys CLK_MM_SMI_COMMON>,
+						 <&mmsys CLK_MM_SMI_GALS>,
+						 <&mmsys CLK_MM_SMI_IOMMU>;
+					clock-names = "disp", "disp-0", "disp-1", "disp-2",
+						      "disp-3";
 					mediatek,infracfg = <&infracfg_ao>;
 					#power-domain-cells = <0>;
 				};
@@ -868,7 +873,6 @@
 			compatible = "mediatek,mt6833-mmsys", "syscon";
 			reg = <0 0x14000000 0 0x1000>;
 			#clock-cells = <1>;
-			status = "disabled";
 		};
 
 		mutex: mutex@14001000 {
