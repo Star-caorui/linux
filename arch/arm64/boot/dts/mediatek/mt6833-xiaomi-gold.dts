@@ -606,6 +606,16 @@
 				 <PINMUX_GPIO34__FUNC_SPI2_MI>;
 		};
 	};
+
+	spi0_pins: spi0-pins {
+		pins-spi {
+			pinmux = <PINMUX_GPIO23__FUNC_SPI0_CLK>,
+				 <PINMUX_GPIO24__FUNC_SPI0_CSB>,
+				 <PINMUX_GPIO25__FUNC_SPI0_MO>,
+				 <PINMUX_GPIO26__FUNC_SPI0_MI>;
+			drive-strength = <8>;
+		};
+	};
 };
 
 &pwrap {
@@ -924,6 +934,14 @@
 			       "0", "-1", "0",
 			       "0", "0", "-1";
 	};
+};
+
+/* The MT6382 display bridge's configuration port */
+&spi0 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&spi0_pins>;
+	mediatek,pad-select = <0>;
+	status = "okay";
 };
 
 &spmi {
