@@ -1,0 +1,132 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/display/bridge/mediatek,mt6382.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: MediaTek MT6382 MIPI DSI to MIPI DSI bridge with DSC
+
+maintainers:
+  - Betterr <51264180+Star-caorui@users.noreply.github.com>
+
+description:
+  The MT6382 receives uncompressed RGB888 video from a MIPI DSI host over up
+  to four D-PHY lanes, buffers it, compresses it with a VESA DSC encoder and
+  sends it on over its own MIPI DSI transmitter to a DSC panel. It is
+  configured over SPI, LSB first. It also passes its 26 MHz reference clock
+  on to an NFC controller.
+
+allOf:
+  - $ref: /schemas/display/dsi-controller.yaml#
+  - $ref: /schemas/spi/spi-peripheral-props.yaml#
+
+properties:
+  compatible:
+    const: mediatek,mt6382
+
+  reg:
+    maxItems: 1
+
+  spi-max-frequency:
+    maximum: 55000000
+
+  spi-lsb-first: true
+
+  clocks:
+    maxItems: 1
+    description: 26 MHz reference clock
+
+  '#clock-cells':
+    const: 0
+    description:
+      The 26 MHz reference clock as the bridge passes it on to an NFC
+      controller, while the NFC controller requests it.
+
+  reset-gpios:
+    maxItems: 1
+
+  interrupts:
+    maxItems: 1
+
+  ports:
+    $ref: /schemas/graph.yaml#/properties/ports
+
+    properties:
+      port@0:
+        $ref: /schemas/graph.yaml#/properties/port
+        description: MIPI DSI input from the SoC's DSI host
+
+      port@1:
+        $ref: /schemas/graph.yaml#/properties/port
+        description: MIPI DSI output to the panel
+
+    required:
+      - port@0
+      - port@1
+
+required:
+  - compatible
+  - reg
+  - spi-lsb-first
+  - clocks
+  - reset-gpios
+  - ports
+
+unevaluatedProperties: false
+
+examples:
+  - |
+    #include <dt-bindings/gpio/gpio.h>
+
+    spi {
+        #address-cells = <1>;
+        #size-cells = <0>;
+
+        dsi@0 {
+            compatible = "mediatek,mt6382";
+            reg = <0>;
+            spi-max-frequency = <55000000>;
+            spi-lsb-first;
+            clocks = <&bridge_xo>;
+            reset-gpios = <&pio 20 GPIO_ACTIVE_LOW>;
+            #clock-cells = <0>;
+            #address-cells = <1>;
+            #size-cells = <0>;
+
+            ports {
+                #address-cells = <1>;
+                #size-cells = <0>;
+
+                port@0 {
+                    reg = <0>;
+
+                    bridge_in: endpoint {
+                        remote-endpoint = <&dsi0_out>;
+                    };
+                };
+
+                port@1 {
+                    reg = <1>;
+
+                    bridge_out: endpoint {
+                        remote-endpoint = <&panel_in>;
+                    };
+                };
+            };
+
+            panel@0 {
+                compatible = "xiaomi,gold-panel-n17-36-0f-0c";
+                reg = <0>;
+                vdd-supply = <&panel_dvdd>;
+                vci-supply = <&panel_vci>;
+                vddio-supply = <&vio18>;
+                reset-gpios = <&pio 86 GPIO_ACTIVE_LOW>;
+
+                port {
+                    panel_in: endpoint {
+                        remote-endpoint = <&bridge_out>;
+                    };
+                };
+            };
+        };
+    };
