@@ -16,12 +16,18 @@
 #include <linux/phy/phy.h>
 #include <linux/slab.h>
 
+struct mtk_mipi_tx;
+
 struct mtk_mipitx_data {
 	const u32 mppll_preserve;
 	const u32 max_data_rate;
+	/* leave the bandgap low pass filter off once the core is up */
+	const bool bg_lpf_off;
 	const struct clk_ops *mipi_tx_clk_ops;
 	void (*mipi_tx_enable_signal)(struct phy *phy);
 	void (*mipi_tx_disable_signal)(struct phy *phy);
+	/* without an nvmem cell: take the impedance the bootloader set */
+	void (*read_boot_calibration)(struct mtk_mipi_tx *mipi_tx);
 };
 
 struct mtk_mipi_tx {

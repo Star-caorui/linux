@@ -134,15 +134,35 @@ static void mtk_mipi_tx_config_calibration_data(struct mtk_mipi_tx *mipi_tx)
 	}
 }
 
+/*
+ * The impedance codes the bootloader left in the RT code registers, in the
+ * layout mtk_mipi_tx_config_calibration_data() writes: MediaTek's kernel
+ * keeps them this way on SoCs without the codes in an nvmem cell
+ * (backup_mipitx_impedance(), refill_mipitx_impedance()).
+ */
+static void mtk_mipi_tx_read_boot_calibration(struct mtk_mipi_tx *mipi_tx)
+{
+	int i, j;
+
+	for (i = 0; i < 5; i++)
+		for (j = 0; j < 10; j++)
+			mipi_tx->rt_code[i] |= (readl(mipi_tx->regs +
+				MIPITX_D2P_RTCODE * (i + 1) + j * 4) & 1) << j;
+
+	dev_dbg(mipi_tx->dev, "impedance from the bootloader: %*ph\n",
+		(int)sizeof(mipi_tx->rt_code), mipi_tx->rt_code);
+}
+
 static void mtk_mipi_tx_power_on_signal(struct phy *phy)
 {
 	struct mtk_mipi_tx *mipi_tx = phy_get_drvdata(phy);
 	void __iomem *base = mipi_tx->regs;
+	u32 lpf = mipi_tx->driver_data->bg_lpf_off ? 0 : RG_DSI_BG_LPF_EN;
 
 	/* BG_LPF_EN / BG_CORE_EN */
 	writel(RG_DSI_PAD_TIEL_SEL | RG_DSI_BG_CORE_EN, base + MIPITX_LANE_CON);
 	usleep_range(30, 100);
-	writel(RG_DSI_BG_CORE_EN | RG_DSI_BG_LPF_EN, base + MIPITX_LANE_CON);
+	writel(RG_DSI_BG_CORE_EN | lpf, base + MIPITX_LANE_CON);
 
 	/* Switch OFF each Lane */
 	mtk_phy_clear_bits(base + MIPITX_D0_SW_CTL_EN, DSI_SW_CTL_EN);
@@ -191,7 +211,10 @@ const struct mtk_mipitx_data mt8183_mipitx_data = {
  */
 const struct mtk_mipitx_data mt6833_mipitx_data = {
 	.max_data_rate = 2500000000U,
+	/* mtk_mipi_tx_pll_prepare_mt6833(): LANE_CON 0x3fff0180, then 0x3fff0080 */
+	.bg_lpf_off = true,
 	.mipi_tx_clk_ops = &mtk_mipi_tx_pll_ops,
 	.mipi_tx_enable_signal = mtk_mipi_tx_power_on_signal,
 	.mipi_tx_disable_signal = mtk_mipi_tx_power_off_signal,
+	.read_boot_calibration = mtk_mipi_tx_read_boot_calibration,
 };

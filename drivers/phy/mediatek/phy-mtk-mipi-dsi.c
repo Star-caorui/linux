@@ -175,6 +175,9 @@ static int mtk_mipi_tx_probe(struct platform_device *pdev)
 	mipi_tx->dev = dev;
 
 	mtk_mipi_tx_get_calibration_datal(mipi_tx);
+	if (!memchr_inv(mipi_tx->rt_code, 0, sizeof(mipi_tx->rt_code)) &&
+	    mipi_tx->driver_data->read_boot_calibration)
+		mipi_tx->driver_data->read_boot_calibration(mipi_tx);
 
 	return devm_of_clk_add_hw_provider(dev, of_clk_hw_simple_get, &mipi_tx->pll_hw);
 }
