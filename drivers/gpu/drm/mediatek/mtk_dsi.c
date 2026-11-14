@@ -207,6 +207,8 @@ struct mtk_dsi_driver_data {
 	bool has_skewcal;
 	/* D-PHY timing in byte clocks rounded up, as MediaTek's kernel computes it */
 	bool round_up_phy_timing;
+	/* each line exactly htotal pixels long, the porches in whole words */
+	bool exact_line;
 	u32 max_data_rate;
 };
 
@@ -619,6 +621,53 @@ static void mtk_dsi_config_vdo_timing_per_line_lp(struct mtk_dsi *dsi)
 	writel(horizontal_frontporch_byte, dsi->regs + DSI_HFP_WC);
 }
 
+/*
+ * With the clock lane in HS throughout, make each line take exactly htotal
+ * pixels' worth of bytes on the link, rounded up to whole words: HSA and HBP
+ * as the mode gives them, in whole words, and HFP whatever the packets and
+ * the data lanes' LP-11 to HS transitions leave, also in whole words, as
+ * MediaTek's kernel computes them (mediatek_v2/mtk_dsi.c,
+ * DSI_Config_VDO_Timing_with_DSC(), and the data_phy_cycle of
+ * mtk_dsi_dphy_timconfig_v1()). A device behind the link that forwards
+ * lines at a fixed pace of its own, such as the MT6382 bridge, needs the
+ * line to be as long as it asks for.
+ */
+static void mtk_dsi_config_vdo_timing_exact(struct mtk_dsi *dsi)
+{
+	struct mtk_phy_timing *timing = &dsi->phy_timing;
+	struct videomode *vm = &dsi->vm;
+	u32 bpp = dsi->format == MIPI_DSI_FMT_RGB565 ? 2 : 3;
+	u32 hsa, hbp, hfp, line, used, data_phy_cycles;
+
+	line = (vm->hactive + vm->hfront_porch + vm->hsync_len + vm->hback_porch) * bpp;
+	data_phy_cycles = timing->da_hs_exit + 1 + timing->lpx +
+			  timing->da_hs_prepare + timing->da_hs_zero + 1;
+
+	if (dsi->mode_flags & MIPI_DSI_MODE_VIDEO_SYNC_PULSE) {
+		hsa = ALIGN(vm->hsync_len * bpp - 10, 4);
+		hbp = ALIGN(vm->hback_porch * bpp - 10, 4);
+		/* HSS, HSA packet, HSE, HBP packet */
+		used = 4 + (4 + hsa + 2) + 4 + (4 + hbp + 2);
+	} else {
+		hsa = 0;
+		hbp = ALIGN((vm->hback_porch + vm->hsync_len) * bpp - 10, 4);
+		used = 4 + (4 + hbp + 2);
+	}
+	/* the pixels, the HFP packet's header and checksum, the HS entry and exit */
+	used += 4 + vm->hactive * bpp + 2 + 4 + 2 + data_phy_cycles * dsi->lanes;
+
+	if (line < used + 4) {
+		dev_warn(dsi->host.dev, "line of %u bytes too short for %u\n", line, used);
+		hfp = 4;
+	} else {
+		hfp = ALIGN(line - used, 4);
+	}
+
+	writel(hsa, dsi->regs + DSI_HSA_WC);
+	writel(hbp, dsi->regs + DSI_HBP_WC);
+	writel(hfp, dsi->regs + DSI_HFP_WC);
+}
+
 static void mtk_dsi_config_vdo_timing(struct mtk_dsi *dsi)
 {
 	struct videomode *vm = &dsi->vm;
@@ -633,7 +682,9 @@ static void mtk_dsi_config_vdo_timing(struct mtk_dsi *dsi)
 			FIELD_PREP(DSI_WIDTH, vm->hactive),
 			dsi->regs + DSI_SIZE_CON);
 
-	if (dsi->driver_data->support_per_frame_lp)
+	if (dsi->driver_data->exact_line)
+		mtk_dsi_config_vdo_timing_exact(dsi);
+	else if (dsi->driver_data->support_per_frame_lp)
 		mtk_dsi_config_vdo_timing_per_frame_lp(dsi);
 	else
 		mtk_dsi_config_vdo_timing_per_line_lp(dsi);
@@ -1436,6 +1487,7 @@ static const struct mtk_dsi_driver_data mt6833_dsi_driver_data = {
 	.has_size_ctl = true,
 	.has_skewcal = true,
 	.round_up_phy_timing = true,
+	.exact_line = true,
 	.max_data_rate = 2500000000U,
 };
 
