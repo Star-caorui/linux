@@ -352,6 +352,40 @@ static int mt7615_mcu_drv_pmctrl(struct mt7615_dev *dev)
 	return 0;
 }
 
+/*
+ * MT6833: back from the firmware's deep sleep, the TX rings start over at index 0 (MediaTek's
+ * asicCheckDummyReg()); the firmware keeps the ring bases and the RX rings. The host only hands
+ * over the WMAC with nothing in flight, so what is left in the TX rings is done.
+ */
+static void mt6833_wfdma_check(struct mt7615_dev *dev)
+{
+	struct mt76_dev *mdev = &dev->mt76;
+	u32 val = mt76_rr(dev, MT6833_DUMMY_CR);
+	int i;
+
+	if (val == MT6833_DUMMY_MAGIC)
+		return;
+	if (val != MT6833_DUMMY_RESET)
+		dev_warn(mdev->dev, "PDMA dummy register %08x after sleep\n", val);
+
+	for (i = 0; i < __MT_TXQ_MAX; i++) {
+		struct mt76_queue *q = dev->mphy.q_tx[i];
+
+		if (q && (i == 0 || q != dev->mphy.q_tx[0])) {
+			mt76_queue_tx_cleanup(dev, q, true);
+			mt76_queue_reset(dev, q, true);
+		}
+	}
+	for (i = 0; i < __MT_MCUQ_MAX; i++) {
+		if (!mdev->q_mcu[i])
+			continue;
+		mt76_queue_tx_cleanup(dev, mdev->q_mcu[i], true);
+		mt76_queue_reset(dev, mdev->q_mcu[i], true);
+	}
+	dev->mt6833_deep_sleeps++;
+	mt76_wr(dev, MT6833_DUMMY_CR, MT6833_DUMMY_MAGIC);
+}
+
 static int mt7615_mcu_lp_drv_pmctrl(struct mt7615_dev *dev)
 {
 	struct mt76_phy *mphy = &dev->mt76.phy;
@@ -378,6 +412,8 @@ static int mt7615_mcu_lp_drv_pmctrl(struct mt7615_dev *dev)
 		err = -EIO;
 		goto out;
 	}
+	if (is_mt6833(&dev->mt76))
+		mt6833_wfdma_check(dev);
 	clear_bit(MT76_STATE_PM, &mphy->state);
 
 	pm->stats.last_wake_event = jiffies;
@@ -404,6 +440,8 @@ static int mt7615_mcu_fw_pmctrl(struct mt7615_dev *dev)
 	mt7622_trigger_hif_int(dev, true);
 
 	addr = is_mt7663(&dev->mt76) ? MT_CONN_HIF_ON_LPCTL : MT_CFG_LPCR_HOST;
+	if (is_mt6833(&dev->mt76))
+		mt76_wr(dev, MT6833_DUMMY_CR, MT6833_DUMMY_MAGIC);
 	mt76_wr(dev, addr, MT_CFG_LPCR_HOST_FW_OWN);
 
 	if (is_mt7622(&dev->mt76) &&

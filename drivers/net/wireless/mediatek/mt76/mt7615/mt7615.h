@@ -60,6 +60,13 @@
 #define MT6833_EVENT_SLEEPY_INFO	0x07
 /* MT6833's firmware log (EVENT_ID_DEBUG_MSG), when sent to the host */
 #define MT6833_EVENT_DEBUG_MSG		0x27
+/*
+ * A PDMA register the host marks before it hands the WMAC to the firmware; the firmware's deep
+ * sleep resets it, along with the TX rings' indices (MediaTek's CONN_DUMMY_CR)
+ */
+#define MT6833_DUMMY_CR			0x40a8
+#define MT6833_DUMMY_MAGIC		0x13
+#define MT6833_DUMMY_RESET		0x0f
 /* CONN_HIF_ON_LPCTL (MT_CONN_HIF_ON_LPCTL), for use before the register map is set up */
 #define MT6833_LPCTL			0x7000
 /* the connsys CPU sees its reserved memory (EMI) at this address */
@@ -310,6 +317,8 @@ struct mt7615_dev {
 	/* MT6833 prototype: WMM parameters by mac80211 AC, for CE 0x1d */
 	struct ieee80211_tx_queue_params mt6833_wmm[IEEE80211_NUM_ACS];
 	u8 mt6833_wmm_valid;
+	/* MT6833: times the firmware came back from deep sleep */
+	u32 mt6833_deep_sleeps;
 };
 
 enum tx_pkt_queue_idx {
