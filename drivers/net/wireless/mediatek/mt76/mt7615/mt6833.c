@@ -153,12 +153,13 @@ static int mt6833_remap_set(void *data, u64 val)
 
 DEFINE_DEBUGFS_ATTRIBUTE(mt6833_remap_fops, mt6833_remap_get, mt6833_remap_set, "0x%08llx\n");
 
-static void mt6833_debugfs(void __iomem *base)
+static void mt6833_debugfs(struct mt7615_dev *dev, void __iomem *base)
 {
 	mt6833_dbg_base = base;
 	mt6833_dbg_dir = debugfs_create_dir("mt6833-wmac", NULL);
 	debugfs_create_file_size("window", 0400, mt6833_dbg_dir, NULL, &mt6833_win_fops, SZ_1M);
 	debugfs_create_file_unsafe("remap1", 0600, mt6833_dbg_dir, NULL, &mt6833_remap_fops);
+	debugfs_create_u32("deep_sleeps", 0400, mt6833_dbg_dir, &dev->mt6833_deep_sleeps);
 }
 
 static int mt6833_wmac_probe(struct platform_device *pdev)
@@ -196,7 +197,7 @@ static int mt6833_wmac_probe(struct platform_device *pdev)
 	ret = mt7615_mmio_probe(&pdev->dev, mem_base, irq, mt7663e_reg_map, 0x6833 << 16);
 	if (ret)
 		goto err_fw_own;
-	mt6833_debugfs(mem_base);
+	mt6833_debugfs(platform_get_drvdata(pdev), mem_base);
 	return 0;
 
 err_fw_own:
