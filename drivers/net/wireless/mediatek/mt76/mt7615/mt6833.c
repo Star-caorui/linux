@@ -14,6 +14,7 @@
  * - Receive descriptors carry a fifth word.
  */
 
+#include <linux/debugfs.h>
 #include <linux/dma-mapping.h>
 #include <linux/firmware.h>
 #include <linux/iopoll.h>
@@ -103,6 +104,63 @@ static void mt6833_fw_own(void __iomem *base)
 	writel(MT_CFG_LPCR_HOST_FW_OWN, base + MT6833_LPCTL);
 }
 
+/*
+ * DEBUG: the WMAC's 1 MiB window, raw (32-bit reads, no address translation), and
+ * CONN_HIF_ON_ADDR_REMAP1 (0x700c), which retargets parts of it: to look for the Wi-Fi CPU's
+ * memories. Reading where nothing answers may hang the bus.
+ */
+static struct dentry *mt6833_dbg_dir;
+static void __iomem *mt6833_dbg_base;
+
+static ssize_t mt6833_win_read(struct file *file, char __user *ubuf, size_t count, loff_t *ppos)
+{
+	u32 buf[64];
+	size_t done = 0;
+
+	if (*ppos < 0 || (*ppos & 3) || (count & 3))
+		return -EINVAL;
+	while (done < count && *ppos < SZ_1M) {
+		size_t n = min3(count - done, sizeof(buf), (size_t)(SZ_1M - *ppos));
+		int i;
+
+		for (i = 0; i < n / 4; i++)
+			buf[i] = readl(mt6833_dbg_base + *ppos + i * 4);
+		if (copy_to_user(ubuf + done, buf, n))
+			return -EFAULT;
+		done += n;
+		*ppos += n;
+	}
+	return done;
+}
+
+static const struct file_operations mt6833_win_fops = {
+	.owner = THIS_MODULE,
+	.read = mt6833_win_read,
+	.llseek = default_llseek,
+};
+
+static int mt6833_remap_get(void *data, u64 *val)
+{
+	*val = readl(mt6833_dbg_base + 0x700c);
+	return 0;
+}
+
+static int mt6833_remap_set(void *data, u64 val)
+{
+	writel(val, mt6833_dbg_base + 0x700c);
+	return 0;
+}
+
+DEFINE_DEBUGFS_ATTRIBUTE(mt6833_remap_fops, mt6833_remap_get, mt6833_remap_set, "0x%08llx\n");
+
+static void mt6833_debugfs(void __iomem *base)
+{
+	mt6833_dbg_base = base;
+	mt6833_dbg_dir = debugfs_create_dir("mt6833-wmac", NULL);
+	debugfs_create_file_size("window", 0400, mt6833_dbg_dir, NULL, &mt6833_win_fops, SZ_1M);
+	debugfs_create_file_unsafe("remap1", 0600, mt6833_dbg_dir, NULL, &mt6833_remap_fops);
+}
+
 static int mt6833_wmac_probe(struct platform_device *pdev)
 {
 	struct mtk_connsys *cs;
@@ -138,6 +196,7 @@ static int mt6833_wmac_probe(struct platform_device *pdev)
 	ret = mt7615_mmio_probe(&pdev->dev, mem_base, irq, mt7663e_reg_map, 0x6833 << 16);
 	if (ret)
 		goto err_fw_own;
+	mt6833_debugfs(mem_base);
 	return 0;
 
 err_fw_own:
@@ -153,6 +212,7 @@ static void mt6833_wmac_remove(struct platform_device *pdev)
 	struct mtk_connsys *cs = mt6833_connsys(&pdev->dev);
 	void __iomem *base = dev->mt76.mmio.regs;
 
+	debugfs_remove_recursive(mt6833_dbg_dir);
 	mt7615_unregister_device(dev);
 	mt6833_fw_own(base);
 	if (!IS_ERR(cs))
