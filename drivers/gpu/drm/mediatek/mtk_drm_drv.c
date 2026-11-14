@@ -1220,6 +1220,26 @@ static int mtk_drm_probe(struct platform_device *pdev)
 		goto err_node;
 	}
 
+	/*
+	 * Binding takes a mutex from the disp-mutex driver (mtk_crtc_create()),
+	 * so that driver has to be bound first. Nothing else orders the two:
+	 * this device has no node of its own for fw_devlink to link to it.
+	 */
+	{
+		struct platform_device *mutex_pdev =
+			of_find_device_by_node(private->mutex_node);
+		bool bound = mutex_pdev && platform_get_drvdata(mutex_pdev);
+
+		if (mutex_pdev)
+			put_device(&mutex_pdev->dev);
+		if (!bound) {
+			ret = dev_err_probe(dev, -EPROBE_DEFER,
+					    "Waiting for disp-mutex %pOF\n",
+					    private->mutex_node);
+			goto err_node;
+		}
+	}
+
 	pm_runtime_enable(dev);
 
 	platform_set_drvdata(pdev, private);
