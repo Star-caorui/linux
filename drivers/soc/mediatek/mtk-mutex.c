@@ -8,6 +8,7 @@
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/platform_device.h>
+#include <linux/pm_runtime.h>
 #include <linux/regmap.h>
 #include <linux/soc/mediatek/mtk-mmsys.h>
 #include <linux/soc/mediatek/mtk-mutex.h>
@@ -909,7 +910,16 @@ int mtk_mutex_prepare(struct mtk_mutex *mutex)
 {
 	struct mtk_mutex_ctx *mtx = container_of(mutex, struct mtk_mutex_ctx,
 						 mutex[mutex->id]);
-	return clk_prepare_enable(mtx->clk);
+	int ret;
+
+	ret = pm_runtime_resume_and_get(mtx->dev);
+	if (ret)
+		return ret;
+
+	ret = clk_prepare_enable(mtx->clk);
+	if (ret)
+		pm_runtime_put(mtx->dev);
+	return ret;
 }
 EXPORT_SYMBOL_GPL(mtk_mutex_prepare);
 
@@ -918,6 +928,7 @@ void mtk_mutex_unprepare(struct mtk_mutex *mutex)
 	struct mtk_mutex_ctx *mtx = container_of(mutex, struct mtk_mutex_ctx,
 						 mutex[mutex->id]);
 	clk_disable_unprepare(mtx->clk);
+	pm_runtime_put(mtx->dev);
 }
 EXPORT_SYMBOL_GPL(mtk_mutex_unprepare);
 
@@ -1136,6 +1147,7 @@ static int mtk_mutex_probe(struct platform_device *pdev)
 	if (!mtx)
 		return -ENOMEM;
 
+	mtx->dev = dev;
 	for (i = 0; i < MTK_MUTEX_MAX_HANDLES; i++)
 		mtx->mutex[i].id = i;
 
@@ -1161,7 +1173,7 @@ static int mtk_mutex_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, mtx);
 
-	return 0;
+	return devm_pm_runtime_enable(dev);
 }
 
 static const struct of_device_id mutex_driver_dt_match[] = {
