@@ -702,13 +702,34 @@ update_iova_region:
 
 static struct iommu_domain *mtk_iommu_domain_alloc_paging(struct device *dev)
 {
+	struct mtk_iommu_data *data = dev_iommu_priv_get(dev), *frstdata;
 	struct mtk_iommu_domain *dom;
+	int ret, region_id;
+
+	region_id = mtk_iommu_get_iova_region_id(dev, data->plat_data);
+	if (region_id < 0)
+		return ERR_PTR(region_id);
 
 	dom = kzalloc_obj(*dom);
 	if (!dom)
-		return NULL;
+		return ERR_PTR(-ENOMEM);
 	mutex_init(&dom->mutex);
 	dom->domain.pgsize_bitmap = SZ_4K | SZ_64K | SZ_1M | SZ_16M;
+
+	/*
+	 * Set up the page table now rather than at the first attach: the core
+	 * maps a device's direct (IOMMU_RESV_DIRECT) regions into its default
+	 * domain before attaching it.
+	 */
+	frstdata = mtk_iommu_get_frst_data(data->hw_list);
+	mutex_lock(&frstdata->mutex);
+	ret = mtk_iommu_domain_finalise(dom, frstdata, region_id);
+	mutex_unlock(&frstdata->mutex);
+	if (ret) {
+		kfree(dom);
+		return ERR_PTR(ret);
+	}
+	dom->bank = &data->bank[mtk_iommu_get_bank_id(dev, data->plat_data)];
 
 	return &dom->domain;
 }
