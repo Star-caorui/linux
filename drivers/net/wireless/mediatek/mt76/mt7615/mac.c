@@ -2105,6 +2105,15 @@ void mt7615_pm_power_save_work(struct work_struct *work)
 						pm.ps_work.work);
 
 	delta = dev->pm.idle_timeout;
+	/*
+	 * MT6833: not while the firmware is starting. The firmware download's TX completions
+	 * schedule this work, and FW_START_REQ can take longer than the idle timeout to be
+	 * answered: firmware own then leaves the MCU in its ROM, and the start times out.
+	 */
+	if (is_mt6833(&dev->mt76) &&
+	    !test_bit(MT76_STATE_MCU_RUNNING, &dev->mphy.state))
+		goto out;
+
 	if (test_bit(MT76_HW_SCANNING, &dev->mphy.state) ||
 	    test_bit(MT76_HW_SCHED_SCANNING, &dev->mphy.state) ||
 	    mutex_is_locked(&dev->mt76.mutex))
