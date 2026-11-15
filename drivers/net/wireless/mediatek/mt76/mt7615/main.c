@@ -33,6 +33,14 @@ static int mt7615_mac_enable(struct mt7615_dev *dev, int band, bool enable, bool
 	return mt76_connac_mcu_set_mac_enable(&dev->mt76, band, enable, hdr_trans);
 }
 
+/* DEBUG: MT6833, when each step of the interface start ends */
+#define MT6833_STEP(_s)								\
+	do {									\
+		if (is_mt6833(&dev->mt76))					\
+			dev_info(dev->mt76.dev, "start: %s at %lld us\n", _s,	\
+				 ktime_us_delta(ktime_get(), t0));		\
+	} while (0)
+
 static int mt7615_start(struct ieee80211_hw *hw)
 {
 	struct mt7615_dev *dev = mt7615_hw_dev(hw);
@@ -40,11 +48,14 @@ static int mt7615_start(struct ieee80211_hw *hw)
 	unsigned long timeout;
 	bool running;
 	int ret;
+	ktime_t t0;
 
 	if (!mt7615_wait_for_mcu_init(dev))
 		return -EIO;
 
+	t0 = ktime_get();
 	mt7615_mutex_acquire(dev);
+	MT6833_STEP("mutex");
 
 	running = mt7615_dev_running(dev);
 
@@ -54,10 +65,12 @@ static int mt7615_start(struct ieee80211_hw *hw)
 			goto out;
 
 		ret = mt7615_mac_enable(dev, 0, true, false);
+		MT6833_STEP("mac enable");
 		if (ret)
 			goto out;
 
 		mt7615_mac_enable_nf(dev, 0);
+		MT6833_STEP("noise floor");
 	}
 
 	if (phy != &dev->phy) {
@@ -74,6 +87,7 @@ static int mt7615_start(struct ieee80211_hw *hw)
 
 	if (mt7615_firmware_offload(dev)) {
 		ret = mt7615_mcu_set_channel_domain(phy);
+		MT6833_STEP("domain");
 		if (ret)
 			goto out;
 
@@ -83,6 +97,7 @@ static int mt7615_start(struct ieee80211_hw *hw)
 	}
 
 	ret = mt7615_mcu_set_chan_info(phy, MCU_EXT_CMD(SET_RX_PATH));
+	MT6833_STEP("rx path");
 	if (ret)
 		goto out;
 
