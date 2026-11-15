@@ -2116,6 +2116,8 @@ void mt7615_pm_wake_work(struct work_struct *work)
 			mt76_worker_schedule(&mdev->sdio.txrx_worker);
 		} else {
 			local_bh_disable();
+			if (is_mt6833(mdev))
+				tasklet_schedule(&mdev->irq_tasklet);
 			mt76_for_each_q_rx(mdev, i)
 				napi_schedule(&mdev->napi[i]);
 			local_bh_enable();
@@ -2176,8 +2178,12 @@ void mt7615_pm_power_save_work(struct work_struct *work)
 		goto out;
 	}
 
-	if (!mt7615_mcu_set_fw_ctrl(dev))
+	if (!mt7615_mcu_set_fw_ctrl(dev)) {
+		if (is_mt6833(&dev->mt76) &&
+		    test_bit(MT76_STATE_PM, &dev->mphy.state))
+			cancel_delayed_work(&dev->mphy.mac_work);
 		return;
+	}
 out:
 	queue_delayed_work(dev->mt76.wq, &dev->pm.ps_work, delta);
 }

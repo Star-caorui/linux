@@ -69,14 +69,33 @@ mt7615_rx_poll_complete(struct mt76_dev *mdev, enum mt76_rxq_id q)
 	mt76_connac_irq_enable(mdev, MT_INT_RX_DONE(q));
 }
 
+static void mt6833_irq_disable(struct mt7615_dev *dev)
+{
+	if (dev->mt6833_irq > 0 &&
+	    !test_and_set_bit(0, &dev->mt6833_irq_state))
+		disable_irq_nosync(dev->mt6833_irq);
+}
+
+static void mt6833_irq_enable(struct mt7615_dev *dev)
+{
+	if (dev->mt6833_irq > 0 &&
+	    test_and_clear_bit(0, &dev->mt6833_irq_state))
+		enable_irq(dev->mt6833_irq);
+}
+
 static irqreturn_t mt7615_irq_handler(int irq, void *dev_instance)
 {
 	struct mt7615_dev *dev = dev_instance;
 
-	mt76_wr(dev, MT_INT_MASK_CSR, 0);
-
-	if (!test_bit(MT76_STATE_INITIALIZED, &dev->mphy.state))
-		return IRQ_NONE;
+	if (is_mt6833(&dev->mt76)) {
+		if (!test_bit(MT76_STATE_INITIALIZED, &dev->mphy.state))
+			return IRQ_NONE;
+		mt6833_irq_disable(dev);
+	} else {
+		mt76_wr(dev, MT_INT_MASK_CSR, 0);
+		if (!test_bit(MT76_STATE_INITIALIZED, &dev->mphy.state))
+			return IRQ_NONE;
+	}
 
 	tasklet_schedule(&dev->mt76.irq_tasklet);
 
@@ -86,14 +105,21 @@ static irqreturn_t mt7615_irq_handler(int irq, void *dev_instance)
 static void mt7615_irq_tasklet(struct tasklet_struct *t)
 {
 	struct mt7615_dev *dev = from_tasklet(dev, t, mt76.irq_tasklet);
-	u32 intr, mask = 0, tx_mcu_mask = mt7615_tx_mcu_int_mask(dev);
+	u32 raw_intr, intr, mask = 0, tx_mcu_mask = mt7615_tx_mcu_int_mask(dev);
 	u32 mcu_int;
+
+	if (is_mt6833(&dev->mt76) &&
+	    !mt76_connac_pm_ref(&dev->mphy, &dev->pm)) {
+		if (test_bit(0, &dev->mt6833_irq_state))
+			queue_work(dev->mt76.wq, &dev->pm.wake_work);
+		return;
+	}
 
 	mt76_wr(dev, MT_INT_MASK_CSR, 0);
 
-	intr = mt76_rr(dev, MT_INT_SOURCE_CSR);
-	intr &= dev->mt76.mmio.irqmask;
-	mt76_wr(dev, MT_INT_SOURCE_CSR, intr);
+	raw_intr = mt76_rr(dev, MT_INT_SOURCE_CSR);
+	intr = raw_intr & dev->mt76.mmio.irqmask;
+	mt76_wr(dev, MT_INT_SOURCE_CSR, is_mt6833(&dev->mt76) ? raw_intr : intr);
 
 	trace_dev_irq(&dev->mt76, intr, dev->mt76.mmio.irqmask);
 
@@ -112,7 +138,7 @@ static void mt7615_irq_tasklet(struct tasklet_struct *t)
 		napi_schedule(&dev->mt76.napi[1]);
 
 	if (!(intr & (MT_INT_MCU_CMD | MT7663_INT_MCU_CMD)))
-		return;
+		goto out;
 
 	if (is_mt7663(&dev->mt76)) {
 		mcu_int = mt76_rr(dev, MT_MCU2HOST_INT_STATUS);
@@ -124,11 +150,17 @@ static void mt7615_irq_tasklet(struct tasklet_struct *t)
 	}
 
 	if (!mcu_int)
-		return;
+		goto out;
 
 	dev->reset_state = mcu_int;
 	queue_work(dev->mt76.wq, &dev->reset_work);
 	wake_up(&dev->reset_wait);
+
+out:
+	if (is_mt6833(&dev->mt76)) {
+		mt6833_irq_enable(dev);
+		mt76_connac_pm_unref(&dev->mphy, &dev->pm);
+	}
 }
 
 /*
@@ -246,11 +278,8 @@ static bool mt6833_pm_reg_skip(struct mt7615_dev *dev, u32 offset, u32 addr,
 	 * (0x4204) and we dropped the write, gate the line in CONN_HIF_ON_IRQ_ENA (0x7008) so
 	 * the unmasked level interrupt cannot livelock the CPU before the trace gets out.
 	 */
-	if (write && addr == MT_INT_MASK_CSR && !val &&
-	    !READ_ONCE(dev->mt6833_pm_irq_masked)) {
-		WRITE_ONCE(dev->mt6833_pm_irq_masked, true);
-		dev->bus_ops->wr(&dev->mt76, MT_CONN_HIF_ON_IRQ_ENA, 0);
-	}
+	if (in_hardirq())
+		mt6833_irq_disable(dev);
 
 	return true;
 }
@@ -460,8 +489,11 @@ int mt7615_mmio_probe(struct device *pdev, void __iomem *mem_base,
 
 	mt76_wr(dev, MT_INT_MASK_CSR, 0);
 
+	if (is_mt6833(mdev))
+		dev->mt6833_irq = irq;
 	ret = devm_request_irq(mdev->dev, irq, mt7615_irq_handler,
-			       IRQF_SHARED, KBUILD_MODNAME, dev);
+			       is_mt6833(mdev) ? 0 : IRQF_SHARED,
+			       KBUILD_MODNAME, dev);
 	if (ret)
 		goto err_free_dev;
 

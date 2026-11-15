@@ -326,7 +326,8 @@ struct mt7615_dev {
 	/* DEBUG: register accesses blocked while MT76_STATE_PM is set */
 	atomic_t mt6833_pm_reg_skips;
 	struct task_struct *mt6833_pmctrl_task;
-	bool mt6833_pm_irq_masked;
+	int mt6833_irq;
+	unsigned long mt6833_irq_state;
 };
 
 enum tx_pkt_queue_idx {

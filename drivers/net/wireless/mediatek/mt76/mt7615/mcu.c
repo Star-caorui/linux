@@ -9,6 +9,7 @@
 #include <linux/of.h>
 #include <linux/soc/mediatek/mtk-connsys.h>
 #include "mt7615.h"
+#include "../dma.h"
 #include "mcu.h"
 #include "mac.h"
 #include "eeprom.h"
@@ -423,11 +424,6 @@ static int mt7615_mcu_lp_drv_pmctrl(struct mt7615_dev *dev)
 	if (is_mt6833(&dev->mt76)) {
 		WRITE_ONCE(dev->mt6833_pmctrl_task, current);
 		mt6833_wfdma_check(dev);
-		if (READ_ONCE(dev->mt6833_pm_irq_masked)) {
-			WRITE_ONCE(dev->mt6833_pm_irq_masked, false);
-			mt76_wr(dev, MT_CONN_HIF_ON_IRQ_ENA,
-				MT_CONN_HIF_ON_IRQ_ENA_HOST);
-		}
 		WRITE_ONCE(dev->mt6833_pmctrl_task, NULL);
 	}
 	clear_bit(MT76_STATE_PM, &mphy->state);
@@ -441,6 +437,32 @@ out:
 	return err;
 }
 
+static bool mt6833_dma_busy(struct mt7615_dev *dev)
+{
+	struct mt76_dev *mdev = &dev->mt76;
+	int i;
+
+	if (test_bit(0, &dev->mt6833_irq_state) ||
+	    test_bit(NAPI_STATE_SCHED, &mdev->tx_napi.state))
+		return true;
+
+	mt76_queue_tx_cleanup(dev, mdev->q_mcu[MT_MCUQ_WM], false);
+	if (mdev->q_mcu[MT_MCUQ_WM] && mdev->q_mcu[MT_MCUQ_WM]->queued)
+		return true;
+
+	mt76_for_each_q_rx(mdev, i) {
+		struct mt76_queue *q = &mdev->q_rx[i];
+
+		if (test_bit(NAPI_STATE_SCHED, &mdev->napi[i].state))
+			return true;
+		if (q->queued &&
+		    (q->desc[q->tail].ctrl & cpu_to_le32(MT_DMA_CTL_DMA_DONE)))
+			return true;
+	}
+
+	return false;
+}
+
 static int mt7615_mcu_fw_pmctrl(struct mt7615_dev *dev)
 {
 	struct mt76_phy *mphy = &dev->mt76.phy;
@@ -449,6 +471,12 @@ static int mt7615_mcu_fw_pmctrl(struct mt7615_dev *dev)
 	u32 addr;
 
 	mutex_lock(&pm->mutex);
+
+	if (is_mt6833(&dev->mt76) && !test_bit(MT76_STATE_PM, &mphy->state) &&
+	    mt6833_dma_busy(dev)) {
+		err = -EBUSY;
+		goto out;
+	}
 
 	if (is_mt6833(&dev->mt76)) {
 		if (dev->mt76.token_count)
@@ -465,12 +493,13 @@ static int mt7615_mcu_fw_pmctrl(struct mt7615_dev *dev)
 	addr = is_mt7663(&dev->mt76) ? MT_CONN_HIF_ON_LPCTL : MT_CFG_LPCR_HOST;
 	if (is_mt6833(&dev->mt76)) {
 		WRITE_ONCE(dev->mt6833_pmctrl_task, current);
+		mt76_set_irq_mask(&dev->mt76, MT_INT_MASK_CSR, 0, 0);
 		mt76_wr(dev, MT6833_DUMMY_CR, MT6833_DUMMY_MAGIC);
 		WRITE_ONCE(dev->mt6833_pmctrl_task, NULL);
 	}
 	mt76_wr(dev, addr, MT_CFG_LPCR_HOST_FW_OWN);
 
-	if (is_mt7622(&dev->mt76) &&
+	if ((is_mt7622(&dev->mt76) || is_mt6833(&dev->mt76)) &&
 	    !mt76_poll_msec(dev, addr, MT_CFG_LPCR_HOST_FW_OWN,
 			    MT_CFG_LPCR_HOST_FW_OWN, 3000)) {
 		dev_err(dev->mt76.dev, "Timeout for firmware own\n");
@@ -2697,7 +2726,8 @@ EXPORT_SYMBOL_GPL(mt7615_mcu_init);
 void mt7615_mcu_exit(struct mt7615_dev *dev)
 {
 	mt7615_mcu_restart(&dev->mt76);
-	mt7615_mcu_set_fw_ctrl(dev);
+	if (!is_mt6833(&dev->mt76))
+		mt7615_mcu_set_fw_ctrl(dev);
 	skb_queue_purge(&dev->mt76.mcu.res_q);
 }
 EXPORT_SYMBOL_GPL(mt7615_mcu_exit);

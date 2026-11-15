@@ -16,7 +16,11 @@ static void mt7615_pci_init_work(struct work_struct *work)
 {
 	struct mt7615_dev *dev = container_of(work, struct mt7615_dev,
 					      mcu_work);
+	bool pm_ref = false;
 	int i, ret;
+
+	if (is_mt6833(&dev->mt76))
+		pm_ref = mt76_connac_pm_ref(&dev->mphy, &dev->pm);
 
 	ret = mt7615_mcu_init(dev);
 	for (i = 0; (ret == -EAGAIN) && (i < 10); i++) {
@@ -24,10 +28,11 @@ static void mt7615_pci_init_work(struct work_struct *work)
 		ret = mt7615_mcu_init(dev);
 	}
 
-	if (ret)
-		return;
+	if (!ret)
+		mt7615_init_work(dev);
 
-	mt7615_init_work(dev);
+	if (pm_ref)
+		mt76_connac_pm_unref(&dev->mphy, &dev->pm);
 }
 
 static int mt7615_init_hardware(struct mt7615_dev *dev)
@@ -126,6 +131,12 @@ void mt7615_unregister_device(struct mt7615_dev *dev)
 	mt7615_unregister_ext_phy(dev);
 	cancel_work_sync(&dev->reset_work);
 	mt76_unregister_device(&dev->mt76);
+	if (is_mt6833(&dev->mt76)) {
+		cancel_delayed_work_sync(&dev->pm.ps_work);
+		cancel_work_sync(&dev->pm.wake_work);
+		cancel_work_sync(&dev->rate_work);
+		mt7615_mcu_set_drv_ctrl(dev);
+	}
 	if (mcu_running)
 		mt7615_mcu_exit(dev);
 
