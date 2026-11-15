@@ -123,6 +123,8 @@ static void mt7615_stop(struct ieee80211_hw *hw, bool suspend)
 	cancel_delayed_work_sync(&phy->mt76->mac_work);
 	timer_delete_sync(&phy->roc_timer);
 	cancel_work_sync(&phy->roc_work);
+	if (is_mt6833(&dev->mt76))
+		cancel_work_sync(&dev->rate_work);
 
 	cancel_delayed_work_sync(&dev->pm.ps_work);
 	cancel_work_sync(&dev->pm.wake_work);
@@ -420,7 +422,7 @@ static int mt7615_set_key(struct ieee80211_hw *hw, enum set_key_cmd cmd,
 	}
 
 	mt76_wcid_key_setup(&dev->mt76, wcid, key);
-	if (mt76_is_mmio(&dev->mt76))
+	if (mt76_is_mmio(&dev->mt76) && !is_mt6833(&dev->mt76))
 		err = mt7615_mac_wtbl_set_key(dev, wcid, key);
 	else
 		err = __mt7615_mac_wtbl_set_key(dev, wcid, key);
@@ -730,6 +732,17 @@ void mt7615_mac_sta_remove(struct mt76_dev *mdev, struct ieee80211_vif *vif,
 			       MT_WTBL_UPDATE_ADM_COUNT_CLEAR);
 	if (vif->type == NL80211_IFTYPE_STATION && !sta->tdls)
 		mt7615_mcu_add_bss_info(phy, vif, sta, false);
+
+	if (is_mt6833(mdev)) {
+		struct mt7615_wtbl_rate_desc *wrd;
+
+		spin_lock_bh(&mdev->lock);
+		list_for_each_entry(wrd, &dev->wrd_head, node) {
+			if (wrd->sta == msta)
+				wrd->sta = NULL;
+		}
+		spin_unlock_bh(&mdev->lock);
+	}
 
 	spin_lock_bh(&mdev->sta_poll_lock);
 	if (!list_empty(&msta->wcid.poll_list))

@@ -109,7 +109,8 @@ static void mt6833_trace_tx(struct mt7615_dev *dev, struct sk_buff *skb, int cmd
 	int n = cmd == MCU_CE_CMD(SET_NVRAM) || cmd == MCU_CE_CMD(BSS_ACTIVATE_CTRL) ||
 		cmd == MCU_CE_CMD(SET_BSS_INFO) ? 4 : cmd == MCU_CE_CMD(UPDATE_STA_RECORD) ? 2 : 16;
 
-	if (!is_mt6833(&dev->mt76) || !mt6833_trace || cmd == MCU_CMD(FW_SCATTER))
+	if (!is_mt6833(&dev->mt76) || !mt6833_trace || cmd == MCU_CMD(FW_SCATTER) ||
+	    cmd == MCU_CE_CMD(REG_WRITE) || cmd == MCU_CE_QUERY(REG_READ))
 		return;
 	dev_info(dev->mt76.dev, "mcu tx %08x seq %d len %d: %*ph\n", cmd, seq,
 		 skb->len - hdr, min_t(int, skb->len - hdr, n), skb->data + hdr);
@@ -246,6 +247,8 @@ int mt7615_mcu_parse_response(struct mt76_dev *mdev, int cmd,
 		skb_pull(skb, sizeof(*rxd));
 		event = (struct mt76_connac_mcu_reg_event *)skb->data;
 		ret = (int)le32_to_cpu(event->val);
+		if (is_mt6833(mdev) && ret == -EAGAIN)
+			ret = -EILSEQ;
 	}
 
 	return ret;
@@ -265,6 +268,10 @@ mt7615_mcu_send_message(struct mt76_dev *mdev, struct sk_buff *skb,
 		qid = MT_MCUQ_WM;
 	else
 		qid = MT_MCUQ_FWDL;
+
+	if (is_mt6833(mdev) && qid == MT_MCUQ_WM &&
+	    mdev->q_mcu[qid]->queued >= mdev->q_mcu[qid]->ndesc / 2)
+		mt76_queue_tx_cleanup(dev, mdev->q_mcu[qid], false);
 
 	return mt76_tx_queue_skb_raw(dev, dev->mt76.q_mcu[qid], skb, 0);
 }

@@ -255,15 +255,50 @@ static bool mt6833_pm_reg_skip(struct mt7615_dev *dev, u32 offset, u32 addr,
 	return true;
 }
 
+/*
+ * MT6833: WFSYS (UMAC PLE/PSE/PP 0x08000..0x0ffff, PHY 0x10000..0x1ffff, LMAC/WTBL
+ * 0x20000..0x3ffff and WFSYS_ON 0xae000..0xaefff) is powered down and AXI sleep-protected by
+ * the firmware whenever it is idle; taking driver own through LPCTL wakes CONN_HIF (PDMA), not
+ * WFSYS, so direct MMIO to WFSYS faults with a synchronous external abort. Reach WFSYS by chip
+ * address through CMD_ID_ACCESS_REG (0xc0), whose MCU dispatch wakes WFSYS first (as MediaTek's
+ * gen4m does for addresses >= 0x10000, and as mt7663s does).
+ */
+static bool mt6833_wfsys_chip_addr(u32 addr, u32 *chip)
+{
+	int i;
+
+	if (!((addr >= 0x08000 && addr < 0x40000) ||
+	      (addr >= 0xae000 && addr < 0xaf000)))
+		return false;
+
+	for (i = 0; i < ARRAY_SIZE(mt6833_reg_map); i++) {
+		if (addr - mt6833_reg_map[i].maps < mt6833_reg_map[i].size) {
+			*chip = mt6833_reg_map[i].phys +
+				(addr - mt6833_reg_map[i].maps);
+			return true;
+		}
+	}
+	return false;
+}
+
+static bool mt6833_wfsys_can_mcu(struct mt7615_dev *dev)
+{
+	return !WARN_ON_ONCE(!test_bit(MT76_STATE_MCU_RUNNING, &dev->mphy.state) ||
+			     in_atomic() || irqs_disabled());
+}
+
 static u32 mt7615_rr(struct mt76_dev *mdev, u32 offset)
 {
 	struct mt7615_dev *dev = container_of(mdev, struct mt7615_dev, mt76);
-	u32 addr;
+	u32 addr, chip;
 
 	if (!mt7615_reg_addr(dev, offset, &addr))
 		return ~0;
 	if (mt6833_pm_reg_skip(dev, offset, addr, false, 0, (void *)_RET_IP_))
 		return 0;
+	if (is_mt6833(mdev) && mt6833_wfsys_chip_addr(addr, &chip))
+		return mt6833_wfsys_can_mcu(dev) ?
+		       mt76_connac_mcu_reg_rr(mdev, chip) : 0;
 
 	return dev->bus_ops->rr(mdev, addr);
 }
@@ -271,12 +306,17 @@ static u32 mt7615_rr(struct mt76_dev *mdev, u32 offset)
 static void mt7615_wr(struct mt76_dev *mdev, u32 offset, u32 val)
 {
 	struct mt7615_dev *dev = container_of(mdev, struct mt7615_dev, mt76);
-	u32 addr;
+	u32 addr, chip;
 
 	if (!mt7615_reg_addr(dev, offset, &addr))
 		return;
 	if (mt6833_pm_reg_skip(dev, offset, addr, true, val, (void *)_RET_IP_))
 		return;
+	if (is_mt6833(mdev) && mt6833_wfsys_chip_addr(addr, &chip)) {
+		if (mt6833_wfsys_can_mcu(dev))
+			mt76_connac_mcu_reg_wr(mdev, chip, val);
+		return;
+	}
 
 	dev->bus_ops->wr(mdev, addr, val);
 }
@@ -284,12 +324,19 @@ static void mt7615_wr(struct mt76_dev *mdev, u32 offset, u32 val)
 static u32 mt7615_rmw(struct mt76_dev *mdev, u32 offset, u32 mask, u32 val)
 {
 	struct mt7615_dev *dev = container_of(mdev, struct mt7615_dev, mt76);
-	u32 addr;
+	u32 addr, chip;
 
 	if (!mt7615_reg_addr(dev, offset, &addr))
 		return ~0;
 	if (mt6833_pm_reg_skip(dev, offset, addr, true, val, (void *)_RET_IP_))
 		return 0;
+	if (is_mt6833(mdev) && mt6833_wfsys_chip_addr(addr, &chip)) {
+		if (!mt6833_wfsys_can_mcu(dev))
+			return 0;
+		val |= mt76_connac_mcu_reg_rr(mdev, chip) & ~mask;
+		mt76_connac_mcu_reg_wr(mdev, chip, val);
+		return val;
+	}
 
 	return dev->bus_ops->rmw(mdev, addr, mask, val);
 }
@@ -298,12 +345,22 @@ static void mt7615_write_copy(struct mt76_dev *mdev, u32 offset,
 			      const void *data, int len)
 {
 	struct mt7615_dev *dev = container_of(mdev, struct mt7615_dev, mt76);
-	u32 addr;
+	u32 addr, chip;
 
 	if (!mt7615_reg_addr(dev, offset, &addr))
 		return;
 	if (mt6833_pm_reg_skip(dev, offset, addr, true, 1, (void *)_RET_IP_))
 		return;
+	if (is_mt6833(mdev) && mt6833_wfsys_chip_addr(addr, &chip)) {
+		int i;
+
+		if (!mt6833_wfsys_can_mcu(dev))
+			return;
+		for (i = 0; i + 4 <= len; i += 4)
+			mt76_connac_mcu_reg_wr(mdev, chip + i,
+					       get_unaligned_le32(data + i));
+		return;
+	}
 
 	dev->bus_ops->write_copy(mdev, addr, data, len);
 }
@@ -312,12 +369,24 @@ static void mt7615_read_copy(struct mt76_dev *mdev, u32 offset,
 			     void *data, int len)
 {
 	struct mt7615_dev *dev = container_of(mdev, struct mt7615_dev, mt76);
-	u32 addr;
+	u32 addr, chip;
 
 	if (!mt7615_reg_addr(dev, offset, &addr))
 		return;
 	if (mt6833_pm_reg_skip(dev, offset, addr, false, 0, (void *)_RET_IP_)) {
 		memset(data, 0, len);
+		return;
+	}
+	if (is_mt6833(mdev) && mt6833_wfsys_chip_addr(addr, &chip)) {
+		int i;
+
+		if (!mt6833_wfsys_can_mcu(dev)) {
+			memset(data, 0, len);
+			return;
+		}
+		for (i = 0; i + 4 <= len; i += 4)
+			put_unaligned_le32(mt76_connac_mcu_reg_rr(mdev, chip + i),
+					   data + i);
 		return;
 	}
 

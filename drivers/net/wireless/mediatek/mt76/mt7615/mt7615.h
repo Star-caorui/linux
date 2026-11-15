@@ -56,6 +56,8 @@
 /* the board's calibration: nvdata's WIFI file without its 2-byte checksum */
 #define MT6833_NVRAM			"mt6833-wifi-nvram.bin"
 #define MT6833_NVRAM_SIZE		2048
+/* reply to CMD_ID_ACCESS_REG (0xc0) */
+#define MT6833_EVENT_ACCESS_REG		0x05
 /* MT6833's firmware tells the host it may sleep, with sequence numbers of its own */
 #define MT6833_EVENT_SLEEPY_INFO	0x07
 /* MT6833's firmware log (EVENT_ID_DEBUG_MSG), when sent to the host */
@@ -446,6 +448,7 @@ bool mt7615_wait_for_mcu_init(struct mt7615_dev *dev);
 void mt7615_mac_set_rates(struct mt7615_phy *phy, struct mt7615_sta *sta,
 			  struct ieee80211_tx_rate *probe_rate,
 			  struct ieee80211_tx_rate *rates);
+void mt7615_rate_work(struct work_struct *work);
 void mt7615_pm_wake_work(struct work_struct *work);
 void mt7615_pm_power_save_work(struct work_struct *work);
 int mt7615_mcu_set_chan_info(struct mt7615_phy *phy, int cmd);

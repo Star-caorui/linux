@@ -168,7 +168,7 @@ mt7615_mac_init(struct mt7615_dev *dev)
 		FIELD_PREP(MT_AGG_ARCR_RATE_DOWN_RATIO, 1) |
 		FIELD_PREP(MT_AGG_ARCR_RATE_UP_EXTRA_TH, 4));
 
-	for (i = 0; i < MT7615_WTBL_SIZE; i++)
+	for (i = 0; i < mt7615_wtbl_size(dev); i++)
 		mt7615_mac_wtbl_update(dev, i,
 				       MT_WTBL_UPDATE_ADM_COUNT_CLEAR);
 
@@ -655,6 +655,10 @@ void mt7615_init_device(struct mt7615_dev *dev)
 	init_waitqueue_head(&dev->reset_wait);
 	init_waitqueue_head(&dev->phy.roc_wait);
 
+	if (is_mt6833(&dev->mt76)) {
+		INIT_WORK(&dev->rate_work, mt7615_rate_work);
+		INIT_LIST_HEAD(&dev->wrd_head);
+	}
 	INIT_WORK(&dev->phy.roc_work, mt7615_roc_work);
 	timer_setup(&dev->phy.roc_timer, mt7615_roc_timer, 0);
 

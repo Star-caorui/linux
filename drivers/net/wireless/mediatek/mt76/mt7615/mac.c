@@ -937,6 +937,7 @@ void mt7615_mac_sta_poll(struct mt7615_dev *dev)
 		if (!msta->wcid.sta)
 			continue;
 
+		rcu_read_lock();
 		sta = container_of((void *)msta, struct ieee80211_sta,
 				   drv_priv);
 		for (i = 0; i < 4; i++) {
@@ -950,6 +951,7 @@ void mt7615_mac_sta_poll(struct mt7615_dev *dev)
 			ieee80211_sta_register_airtime(sta, tid, tx_cur,
 						       rx_cur);
 		}
+		rcu_read_unlock();
 	}
 }
 EXPORT_SYMBOL_GPL(mt7615_mac_sta_poll);
@@ -1091,26 +1093,18 @@ u32 mt7615_mac_get_sta_tid_sn(struct mt7615_dev *dev, int wcid, u8 tid)
 	return val & GENMASK(11, 0);
 }
 
-void mt7615_mac_set_rates(struct mt7615_phy *phy, struct mt7615_sta *sta,
-			  struct ieee80211_tx_rate *probe_rate,
-			  struct ieee80211_tx_rate *rates)
+static void mt7615_mac_apply_rates(struct mt7615_dev *dev,
+				   struct mt7615_sta *sta,
+				   struct mt7615_rate_desc *rdp,
+				   bool has_probe)
 {
 	int wcid = sta->wcid.idx, n_rates = sta->n_rates;
-	struct mt7615_dev *dev = phy->dev;
-	struct mt7615_rate_desc rd;
+	struct mt7615_rate_desc rd = *rdp;
 	u32 w5, w27, addr;
 	u16 idx = sta->vif->mt76.omac_idx;
 
-	if (!mt76_is_mmio(&dev->mt76)) {
-		mt7615_mac_queue_rate_update(phy, sta, probe_rate, rates);
-		return;
-	}
-
 	if (!mt76_poll(dev, MT_WTBL_UPDATE, MT_WTBL_UPDATE_BUSY, 0, 5000))
 		return;
-
-	memset(&rd, 0, sizeof(struct mt7615_rate_desc));
-	mt7615_mac_update_rate_desc(phy, sta, probe_rate, rates, &rd);
 
 	addr = mt7615_mac_wtbl_addr(dev, wcid);
 	w27 = mt76_rr(dev, addr + 27 * 4);
@@ -1163,7 +1157,51 @@ void mt7615_mac_set_rates(struct mt7615_phy *phy, struct mt7615_sta *sta,
 
 	sta->rate_count = 2 * MT7615_RATE_RETRY * n_rates;
 	sta->wcid.tx_info |= MT_WCID_TX_INFO_SET;
-	sta->rate_probe = !!probe_rate;
+	sta->rate_probe = has_probe;
+}
+
+void mt7615_mac_set_rates(struct mt7615_phy *phy, struct mt7615_sta *sta,
+			  struct ieee80211_tx_rate *probe_rate,
+			  struct ieee80211_tx_rate *rates)
+{
+	struct mt7615_dev *dev = phy->dev;
+	struct mt7615_rate_desc rd = {};
+
+	if (!mt76_is_mmio(&dev->mt76) || is_mt6833(&dev->mt76)) {
+		mt7615_mac_queue_rate_update(phy, sta, probe_rate, rates);
+		return;
+	}
+
+	mt7615_mac_update_rate_desc(phy, sta, probe_rate, rates, &rd);
+	mt7615_mac_apply_rates(dev, sta, &rd, !!probe_rate);
+}
+
+void mt7615_rate_work(struct work_struct *work)
+{
+	struct mt7615_wtbl_rate_desc *wrd, *wrd_next;
+	struct list_head wrd_list;
+	struct mt7615_dev *dev;
+
+	dev = container_of(work, struct mt7615_dev, rate_work);
+
+	INIT_LIST_HEAD(&wrd_list);
+	spin_lock_bh(&dev->mt76.lock);
+	list_splice_init(&dev->wrd_head, &wrd_list);
+	spin_unlock_bh(&dev->mt76.lock);
+
+	list_for_each_entry_safe(wrd, wrd_next, &wrd_list, node) {
+		struct mt7615_sta *sta = wrd->sta;
+		bool has_probe;
+
+		list_del(&wrd->node);
+		if (sta) {
+			has_probe = sta->rateset[wrd->rate.rateset].probe_rate.idx != -1;
+			mt7615_mutex_acquire(dev);
+			mt7615_mac_apply_rates(dev, sta, &wrd->rate, has_probe);
+			mt7615_mutex_release(dev);
+		}
+		kfree(wrd);
+	}
 }
 EXPORT_SYMBOL_GPL(mt7615_mac_set_rates);
 
@@ -1583,9 +1621,11 @@ static void mt7615_mac_tx_free(struct mt7615_dev *dev, void *data, int len)
 			mt7615_mac_tx_free_token(dev, le32_to_cpu(token[i]));
 	}
 
-	rcu_read_lock();
-	mt7615_mac_sta_poll(dev);
-	rcu_read_unlock();
+	if (!is_mt6833(&dev->mt76)) {
+		rcu_read_lock();
+		mt7615_mac_sta_poll(dev);
+		rcu_read_unlock();
+	}
 
 	mt76_worker_schedule(&dev->mt76.tx_worker);
 }
@@ -1662,6 +1702,7 @@ static void mt6833_rx_fixup(struct mt7615_dev *dev, struct sk_buff *skb,
 
 		/* not the firmware log: it has its own lines */
 		if (e[4] == MT6833_EVENT_DEBUG_MSG ||
+		    e[4] == MT6833_EVENT_ACCESS_REG ||
 		    (e[4] == MCU_EVENT_EXT && e[7] == MCU_EXT_EVENT_FW_LOG_2_HOST))
 			return;
 		dev_info(dev->mt76.dev, "mcu rx eid %02x seq %u len %u: %*ph\n", e[4], e[5],
@@ -2153,6 +2194,8 @@ void mt7615_mac_work(struct work_struct *work)
 
 	mt7615_mutex_acquire(phy->dev);
 
+	if (is_mt6833(&phy->dev->mt76))
+		mt7615_mac_sta_poll(phy->dev);
 	mt7615_update_survey(phy->dev);
 	if (++mphy->mac_work_count == 5) {
 		mphy->mac_work_count = 0;
