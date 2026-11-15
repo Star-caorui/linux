@@ -413,8 +413,16 @@ static int mt7615_mcu_lp_drv_pmctrl(struct mt7615_dev *dev)
 		err = -EIO;
 		goto out;
 	}
-	if (is_mt6833(&dev->mt76))
+	if (is_mt6833(&dev->mt76)) {
+		WRITE_ONCE(dev->mt6833_pmctrl_task, current);
 		mt6833_wfdma_check(dev);
+		if (READ_ONCE(dev->mt6833_pm_irq_masked)) {
+			WRITE_ONCE(dev->mt6833_pm_irq_masked, false);
+			mt76_wr(dev, MT_CONN_HIF_ON_IRQ_ENA,
+				MT_CONN_HIF_ON_IRQ_ENA_HOST);
+		}
+		WRITE_ONCE(dev->mt6833_pmctrl_task, NULL);
+	}
 	clear_bit(MT76_STATE_PM, &mphy->state);
 
 	pm->stats.last_wake_event = jiffies;
@@ -448,8 +456,11 @@ static int mt7615_mcu_fw_pmctrl(struct mt7615_dev *dev)
 	mt7622_trigger_hif_int(dev, true);
 
 	addr = is_mt7663(&dev->mt76) ? MT_CONN_HIF_ON_LPCTL : MT_CFG_LPCR_HOST;
-	if (is_mt6833(&dev->mt76))
+	if (is_mt6833(&dev->mt76)) {
+		WRITE_ONCE(dev->mt6833_pmctrl_task, current);
 		mt76_wr(dev, MT6833_DUMMY_CR, MT6833_DUMMY_MAGIC);
+		WRITE_ONCE(dev->mt6833_pmctrl_task, NULL);
+	}
 	mt76_wr(dev, addr, MT_CFG_LPCR_HOST_FW_OWN);
 
 	if (is_mt7622(&dev->mt76) &&

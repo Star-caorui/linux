@@ -106,15 +106,28 @@ mt76_dma_handle_write(struct mt76_queue *q, u32 offset, u32 val)
 #define Q_READ(_q, _field) ({						\
 	u32 _offset = offsetof(struct mt76_queue_regs, _field);		\
 	u32 _val;							\
-	if (!mt76_dma_handle_read(_q, _offset, &_val))			\
-		_val = readl(&(_q)->regs->_field);			\
+	if (!mt76_dma_handle_read(_q, _offset, &_val)) {		\
+		if (mt76_chip((_q)->dev) == 0x6833)			\
+			_val = __mt76_rr((_q)->dev,			\
+					 (u32)((u8 __iomem *)&(_q)->regs->_field - \
+					       (u8 __iomem *)(_q)->dev->mmio.regs)); \
+		else							\
+			_val = readl(&(_q)->regs->_field);		\
+	}								\
 	_val;								\
 })
 
 #define Q_WRITE(_q, _field, _val)	do {				\
 	u32 _offset = offsetof(struct mt76_queue_regs, _field);		\
-	if (!mt76_dma_handle_write(_q, _offset, _val))			\
-		writel(_val, &(_q)->regs->_field);			\
+	if (!mt76_dma_handle_write(_q, _offset, _val)) {		\
+		if (mt76_chip((_q)->dev) == 0x6833)			\
+			__mt76_wr((_q)->dev,				\
+				  (u32)((u8 __iomem *)&(_q)->regs->_field - \
+					(u8 __iomem *)(_q)->dev->mmio.regs), \
+				  _val);				\
+		else							\
+			writel(_val, &(_q)->regs->_field);		\
+	}								\
 } while (0)
 
 struct mt76_desc {

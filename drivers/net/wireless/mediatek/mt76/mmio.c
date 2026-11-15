@@ -100,6 +100,8 @@ void mt76_set_irq_mask(struct mt76_dev *dev, u32 addr,
 		if (mtk_wed_device_active(&dev->mmio.wed))
 			mtk_wed_device_irq_set_mask(&dev->mmio.wed,
 						    dev->mmio.irqmask);
+		else if (mt76_chip(dev) == 0x6833)
+			__mt76_wr(dev, addr, dev->mmio.irqmask);
 		else
 			mt76_mmio_wr(dev, addr, dev->mmio.irqmask);
 	}

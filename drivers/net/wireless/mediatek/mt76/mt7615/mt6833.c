@@ -111,6 +111,7 @@ static void mt6833_fw_own(void __iomem *base)
  */
 static struct dentry *mt6833_dbg_dir;
 static void __iomem *mt6833_dbg_base;
+static struct mt7615_dev *mt6833_dbg_dev;
 
 static ssize_t mt6833_win_read(struct file *file, char __user *ubuf, size_t count, loff_t *ppos)
 {
@@ -119,6 +120,8 @@ static ssize_t mt6833_win_read(struct file *file, char __user *ubuf, size_t coun
 
 	if (*ppos < 0 || (*ppos & 3) || (count & 3))
 		return -EINVAL;
+	if (mt6833_dbg_dev && test_bit(MT76_STATE_PM, &mt6833_dbg_dev->mphy.state))
+		return -EBUSY;
 	while (done < count && *ppos < SZ_1M) {
 		size_t n = min3(count - done, sizeof(buf), (size_t)(SZ_1M - *ppos));
 		int i;
@@ -155,6 +158,7 @@ DEFINE_DEBUGFS_ATTRIBUTE(mt6833_remap_fops, mt6833_remap_get, mt6833_remap_set, 
 
 static void mt6833_debugfs(struct mt7615_dev *dev, void __iomem *base)
 {
+	mt6833_dbg_dev = dev;
 	mt6833_dbg_base = base;
 	mt6833_dbg_dir = debugfs_create_dir("mt6833-wmac", NULL);
 	debugfs_create_file_size("window", 0400, mt6833_dbg_dir, NULL, &mt6833_win_fops, SZ_1M);
@@ -164,6 +168,7 @@ static void mt6833_debugfs(struct mt7615_dev *dev, void __iomem *base)
 	debugfs_create_u32("skip_token", 0400, mt6833_dbg_dir, &dev->mt6833_skip_token);
 	debugfs_create_u32("skip_wake", 0400, mt6833_dbg_dir, &dev->mt6833_skip_wake);
 	debugfs_create_u32("skip_busy", 0400, mt6833_dbg_dir, &dev->mt6833_skip_busy);
+	debugfs_create_atomic_t("pm_reg_skips", 0400, mt6833_dbg_dir, &dev->mt6833_pm_reg_skips);
 }
 
 static int mt6833_wmac_probe(struct platform_device *pdev)
@@ -218,6 +223,7 @@ static void mt6833_wmac_remove(struct platform_device *pdev)
 	void __iomem *base = dev->mt76.mmio.regs;
 
 	debugfs_remove_recursive(mt6833_dbg_dir);
+	mt6833_dbg_dev = NULL;
 	mt7615_unregister_device(dev);
 	mt6833_fw_own(base);
 	if (!IS_ERR(cs))

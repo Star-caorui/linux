@@ -197,6 +197,64 @@ static bool mt7615_reg_addr(struct mt7615_dev *dev, u32 addr, u32 *offset)
 	return false;
 }
 
+/*
+ * DEBUG: MT6833 registers that remain reachable while the firmware owns the WMAC
+ * (MT76_STATE_PM), as verified under LPCTL=0x00030001 in c2d-nm-2 and soc2_1x1ShowHifInfo():
+ * - 0x07000..0x07fff: CONN_HIF_ON (LPCTL 0x7000, IRQ_ENA 0x7008, host debug/misc 0x7100..0x713c)
+ * - 0xbc010..0xbc020: connsys AXI sleep-protect/GALS/mux/HIF-busy status
+ * - 0xc1140..0xc1144: CONN_TOP_MISC_ON (CONN_ON_MISC and ON_HOST_DBG)
+ * Everything else (PDMA 0x4000..0x6fff, UMAC/PHY/LMAC/WTBL, WFSYS_ON) is off limits without
+ * driver own and may hang the AXI bus when WFSYS is in deep sleep.
+ */
+static bool mt6833_pm_reg_safe(u32 addr)
+{
+	return (addr >= 0x7000 && addr < 0x8000) ||
+	       (addr >= 0xbc010 && addr <= 0xbc020) ||
+	       (addr >= 0xc1140 && addr <= 0xc1144);
+}
+
+static bool mt6833_pm_reg_skip(struct mt7615_dev *dev, u32 offset, u32 addr,
+			       bool write, u32 val, void *caller)
+{
+	int n;
+
+	if (!is_mt6833(&dev->mt76) ||
+	    !test_bit(MT76_STATE_PM, &dev->mphy.state) ||
+	    (in_task() && READ_ONCE(dev->mt6833_pmctrl_task) == current) ||
+	    mt6833_pm_reg_safe(addr))
+		return false;
+
+	n = atomic_inc_return(&dev->mt6833_pm_reg_skips);
+	if (n <= 16)
+		dev_warn(dev->mt76.dev,
+			 "PM skip #%d: %s 0x%08x (win 0x%05x) in %s by %pS\n",
+			 n, write ? "wr" : "rr", offset, addr,
+			 in_hardirq() ? "hardirq" :
+			 in_serving_softirq() ? "softirq" : "task", caller);
+	if (in_hardirq())
+		WARN_ONCE(1, "mt6833-wmac: hardirq %s 0x%08x (0x%05x) in firmware own\n",
+			  write ? "wr" : "rr", offset, addr);
+	else if (in_serving_softirq())
+		WARN_ONCE(1, "mt6833-wmac: softirq %s 0x%08x (0x%05x) in firmware own\n",
+			  write ? "wr" : "rr", offset, addr);
+	else
+		WARN_ONCE(1, "mt6833-wmac: task %s 0x%08x (0x%05x) in firmware own\n",
+			  write ? "wr" : "rr", offset, addr);
+
+	/*
+	 * GIC SPI 377 is level-high: if mt7615_irq_handler() tried to mask MT_INT_MASK_CSR
+	 * (0x4204) and we dropped the write, gate the line in CONN_HIF_ON_IRQ_ENA (0x7008) so
+	 * the unmasked level interrupt cannot livelock the CPU before the trace gets out.
+	 */
+	if (write && addr == MT_INT_MASK_CSR && !val &&
+	    !READ_ONCE(dev->mt6833_pm_irq_masked)) {
+		WRITE_ONCE(dev->mt6833_pm_irq_masked, true);
+		dev->bus_ops->wr(&dev->mt76, MT_CONN_HIF_ON_IRQ_ENA, 0);
+	}
+
+	return true;
+}
+
 static u32 mt7615_rr(struct mt76_dev *mdev, u32 offset)
 {
 	struct mt7615_dev *dev = container_of(mdev, struct mt7615_dev, mt76);
@@ -204,6 +262,8 @@ static u32 mt7615_rr(struct mt76_dev *mdev, u32 offset)
 
 	if (!mt7615_reg_addr(dev, offset, &addr))
 		return ~0;
+	if (mt6833_pm_reg_skip(dev, offset, addr, false, 0, (void *)_RET_IP_))
+		return 0;
 
 	return dev->bus_ops->rr(mdev, addr);
 }
@@ -214,6 +274,8 @@ static void mt7615_wr(struct mt76_dev *mdev, u32 offset, u32 val)
 	u32 addr;
 
 	if (!mt7615_reg_addr(dev, offset, &addr))
+		return;
+	if (mt6833_pm_reg_skip(dev, offset, addr, true, val, (void *)_RET_IP_))
 		return;
 
 	dev->bus_ops->wr(mdev, addr, val);
@@ -226,8 +288,40 @@ static u32 mt7615_rmw(struct mt76_dev *mdev, u32 offset, u32 mask, u32 val)
 
 	if (!mt7615_reg_addr(dev, offset, &addr))
 		return ~0;
+	if (mt6833_pm_reg_skip(dev, offset, addr, true, val, (void *)_RET_IP_))
+		return 0;
 
 	return dev->bus_ops->rmw(mdev, addr, mask, val);
+}
+
+static void mt7615_write_copy(struct mt76_dev *mdev, u32 offset,
+			      const void *data, int len)
+{
+	struct mt7615_dev *dev = container_of(mdev, struct mt7615_dev, mt76);
+	u32 addr;
+
+	if (!mt7615_reg_addr(dev, offset, &addr))
+		return;
+	if (mt6833_pm_reg_skip(dev, offset, addr, true, 1, (void *)_RET_IP_))
+		return;
+
+	dev->bus_ops->write_copy(mdev, addr, data, len);
+}
+
+static void mt7615_read_copy(struct mt76_dev *mdev, u32 offset,
+			     void *data, int len)
+{
+	struct mt7615_dev *dev = container_of(mdev, struct mt7615_dev, mt76);
+	u32 addr;
+
+	if (!mt7615_reg_addr(dev, offset, &addr))
+		return;
+	if (mt6833_pm_reg_skip(dev, offset, addr, false, 0, (void *)_RET_IP_)) {
+		memset(data, 0, len);
+		return;
+	}
+
+	dev->bus_ops->read_copy(mdev, addr, data, len);
 }
 
 /* rev: the chip id and revision, or 0 to read them from the chip */
@@ -291,6 +385,8 @@ int mt7615_mmio_probe(struct device *pdev, void __iomem *mem_base,
 	bus_ops->rr = mt7615_rr;
 	bus_ops->wr = mt7615_wr;
 	bus_ops->rmw = mt7615_rmw;
+	bus_ops->write_copy = mt7615_write_copy;
+	bus_ops->read_copy = mt7615_read_copy;
 	dev->mt76.bus = bus_ops;
 
 	mt76_wr(dev, MT_INT_MASK_CSR, 0);

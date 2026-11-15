@@ -321,6 +321,10 @@ struct mt7615_dev {
 	u32 mt6833_deep_sleeps;
 	/* DEBUG: firmware own given, and why it was not */
 	u32 mt6833_fw_owns, mt6833_skip_token, mt6833_skip_wake, mt6833_skip_busy;
+	/* DEBUG: register accesses blocked while MT76_STATE_PM is set */
+	atomic_t mt6833_pm_reg_skips;
+	struct task_struct *mt6833_pmctrl_task;
+	bool mt6833_pm_irq_masked;
 };
 
 enum tx_pkt_queue_idx {
