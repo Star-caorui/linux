@@ -318,6 +318,7 @@ static inline bool is_mt76_fw_txp(struct mt76_dev *dev)
 	case 0x7928:
 	case 0x7663:
 	case 0x7622:
+	case 0x6833:
 		return false;
 	default:
 		return true;

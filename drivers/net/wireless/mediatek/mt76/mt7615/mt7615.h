@@ -60,6 +60,8 @@
 #define MT6833_EVENT_ACCESS_REG		0x05
 /* MT6833's firmware tells the host it may sleep, with sequence numbers of its own */
 #define MT6833_EVENT_SLEEPY_INFO	0x07
+/* unsolicited TX status from the firmware when MT_TXD5_TX_STATUS_MCU is set */
+#define MT6833_EVENT_TX_DONE		0x0f
 /* MT6833's firmware log (EVENT_ID_DEBUG_MSG), when sent to the host */
 #define MT6833_EVENT_DEBUG_MSG		0x27
 /*
@@ -327,7 +329,10 @@ struct mt7615_dev {
 	atomic_t mt6833_pm_reg_skips;
 	struct task_struct *mt6833_pmctrl_task;
 	int mt6833_irq;
-	unsigned long mt6833_irq_state;
+	spinlock_t mt6833_irq_lock;
+	bool mt6833_irq_disabled;
+	u8 mt6833_ch_token;
+	bool mt6833_ch_active;
 };
 
 enum tx_pkt_queue_idx {
@@ -456,10 +461,13 @@ int mt7615_mcu_set_chan_info(struct mt7615_phy *phy, int cmd);
 int mt7615_mcu_set_wmm(struct mt7615_dev *dev, u8 queue,
 		       const struct ieee80211_tx_queue_params *params);
 void mt7615_mcu_rx_event(struct mt7615_dev *dev, struct sk_buff *skb);
+void mt7615_mac_add_txs(struct mt7615_dev *dev, void *data);
 int mt7615_mcu_rdd_send_pattern(struct mt7615_dev *dev);
 int mt7615_mcu_fw_log_2_host(struct mt7615_dev *dev, u8 ctrl);
 int mt7615_mcu_set_channel_domain(struct mt7615_phy *phy);
 int mt6833_mcu_set_assoc(struct mt7615_phy *phy, struct ieee80211_vif *vif);
+int mt6833_mcu_ch_privilege(struct mt7615_phy *phy, struct ieee80211_vif *vif, bool enable);
+void mt6833_mac_set_rcfr(struct mt7615_dev *dev);
 bool mt6833_dbg_skip(struct mt7615_dev *dev, unsigned int bit);
 int mt6833_mcu_set_wmm(struct mt7615_dev *dev, struct ieee80211_vif *vif, u16 queue,
 		       const struct ieee80211_tx_queue_params *params);
@@ -500,7 +508,11 @@ static inline u8 mt7615_lmac_mapping(struct mt7615_dev *dev, u8 ac)
 
 static inline u32 mt7615_tx_mcu_int_mask(struct mt7615_dev *dev)
 {
-	return MT_INT_TX_DONE(dev->mt76.q_mcu[MT_MCUQ_WM]->hw_idx);
+	u32 mask = MT_INT_TX_DONE(dev->mt76.q_mcu[MT_MCUQ_WM]->hw_idx);
+
+	if (is_mt6833(&dev->mt76))
+		mask |= MT_INT_TX_DONE(0);
+	return mask;
 }
 
 static inline unsigned long

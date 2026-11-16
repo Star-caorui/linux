@@ -124,7 +124,7 @@ mt7615_init_mac_chain(struct mt7615_dev *dev, int chain)
 		FIELD_PREP(MT_AGG_ARxCR_LIMIT(7), MT7615_RATE_RETRY - 1));
 
 	mt76_clear(dev, MT_DMA_RCFR0(chain), MT_DMA_RCFR0_MCU_RX_TDLS);
-	if (!mt7615_firmware_offload(dev)) {
+	if (!mt7615_firmware_offload(dev) || is_mt6833(&dev->mt76)) {
 		u32 mask, set;
 
 		mask = MT_DMA_RCFR0_MCU_RX_MGMT |
@@ -178,7 +178,7 @@ mt7615_mac_init(struct mt7615_dev *dev)
 	mt76_wr(dev, MT_DMA_DCR0,
 		FIELD_PREP(MT_DMA_DCR0_MAX_RX_LEN, 3072) |
 		MT_DMA_DCR0_RX_VEC_DROP | MT_DMA_DCR0_DAMSDU_EN |
-		MT_DMA_DCR0_RX_HDR_TRANS_EN);
+		(is_mt6833(&dev->mt76) ? 0 : MT_DMA_DCR0_RX_HDR_TRANS_EN));
 	/* disable TDLS filtering */
 	mt76_clear(dev, MT_WF_PFCR, MT_WF_PFCR_TDLS_EN);
 	mt76_set(dev, MT_WF_MIB_SCR0, MT_MIB_SCR0_AGG_CNT_RANGE_EN);
@@ -207,6 +207,12 @@ mt7615_check_offload_capability(struct mt7615_dev *dev)
 				   WIPHY_FLAG_HAS_REMAIN_ON_CHANNEL |
 				   NL80211_FEATURE_P2P_GO_CTWIN |
 				   NL80211_FEATURE_P2P_GO_OPPPS;
+		if (is_mt6833(&dev->mt76)) {
+			dev->ops->set_rekey_data = NULL;
+			dev->ops->suspend = NULL;
+			dev->ops->resume = NULL;
+			dev->ops->set_wakeup = NULL;
+		}
 	} else {
 		dev->ops->hw_scan = NULL;
 		dev->ops->cancel_hw_scan = NULL;
@@ -415,7 +421,8 @@ mt7615_init_wiphy(struct ieee80211_hw *hw)
 	ieee80211_hw_set(hw, SINGLE_SCAN_ON_ALL_BANDS);
 	ieee80211_hw_set(hw, TX_STATUS_NO_AMPDU_LEN);
 	ieee80211_hw_set(hw, WANT_MONITOR_VIF);
-	ieee80211_hw_set(hw, SUPPORTS_RX_DECAP_OFFLOAD);
+	if (!is_mt6833(&phy->dev->mt76))
+		ieee80211_hw_set(hw, SUPPORTS_RX_DECAP_OFFLOAD);
 	ieee80211_hw_set(hw, SUPPORTS_VHT_EXT_NSS_BW);
 
 	if (is_mt7615(&phy->dev->mt76))

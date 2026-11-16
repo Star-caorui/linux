@@ -71,16 +71,30 @@ mt7615_rx_poll_complete(struct mt76_dev *mdev, enum mt76_rxq_id q)
 
 static void mt6833_irq_disable(struct mt7615_dev *dev)
 {
-	if (dev->mt6833_irq > 0 &&
-	    !test_and_set_bit(0, &dev->mt6833_irq_state))
+	unsigned long flags;
+
+	if (dev->mt6833_irq <= 0)
+		return;
+	spin_lock_irqsave(&dev->mt6833_irq_lock, flags);
+	if (!dev->mt6833_irq_disabled) {
+		dev->mt6833_irq_disabled = true;
 		disable_irq_nosync(dev->mt6833_irq);
+	}
+	spin_unlock_irqrestore(&dev->mt6833_irq_lock, flags);
 }
 
 static void mt6833_irq_enable(struct mt7615_dev *dev)
 {
-	if (dev->mt6833_irq > 0 &&
-	    test_and_clear_bit(0, &dev->mt6833_irq_state))
+	unsigned long flags;
+
+	if (dev->mt6833_irq <= 0)
+		return;
+	spin_lock_irqsave(&dev->mt6833_irq_lock, flags);
+	if (dev->mt6833_irq_disabled) {
+		dev->mt6833_irq_disabled = false;
 		enable_irq(dev->mt6833_irq);
+	}
+	spin_unlock_irqrestore(&dev->mt6833_irq_lock, flags);
 }
 
 static irqreturn_t mt7615_irq_handler(int irq, void *dev_instance)
@@ -110,7 +124,7 @@ static void mt7615_irq_tasklet(struct tasklet_struct *t)
 
 	if (is_mt6833(&dev->mt76) &&
 	    !mt76_connac_pm_ref(&dev->mphy, &dev->pm)) {
-		if (test_bit(0, &dev->mt6833_irq_state))
+		if (READ_ONCE(dev->mt6833_irq_disabled))
 			queue_work(dev->mt76.wq, &dev->pm.wake_work);
 		return;
 	}
@@ -453,6 +467,17 @@ int mt7615_mmio_probe(struct device *pdev, void __iomem *mem_base,
 	ops = devm_kmemdup(pdev, &mt7615_ops, sizeof(mt7615_ops), GFP_KERNEL);
 	if (!ops)
 		return -ENOMEM;
+	if ((rev >> 16) == 0x6833) {
+		ops->sta_state = mt76_sta_state;
+		ops->sta_add = NULL;
+		ops->sta_remove = NULL;
+#ifdef CONFIG_PM
+		ops->suspend = NULL;
+		ops->resume = NULL;
+		ops->set_wakeup = NULL;
+		ops->set_rekey_data = NULL;
+#endif
+	}
 
 	mdev = mt76_alloc_device(pdev, sizeof(*dev), ops, &drv_ops);
 	if (!mdev)
@@ -489,8 +514,10 @@ int mt7615_mmio_probe(struct device *pdev, void __iomem *mem_base,
 
 	mt76_wr(dev, MT_INT_MASK_CSR, 0);
 
-	if (is_mt6833(mdev))
+	if (is_mt6833(mdev)) {
+		spin_lock_init(&dev->mt6833_irq_lock);
 		dev->mt6833_irq = irq;
+	}
 	ret = devm_request_irq(mdev->dev, irq, mt7615_irq_handler,
 			       is_mt6833(mdev) ? 0 : IRQF_SHARED,
 			       KBUILD_MODNAME, dev);

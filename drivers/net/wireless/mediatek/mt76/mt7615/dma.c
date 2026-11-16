@@ -51,7 +51,7 @@ mt7615_init_tx_queues(struct mt7615_dev *dev)
 	if (ret)
 		return ret;
 
-	if (!is_mt7615(&dev->mt76))
+	if (!is_mt7615(&dev->mt76) && !is_mt6833(&dev->mt76))
 		return mt7622_init_tx_queues_multi(dev);
 
 	ret = mt76_connac_init_tx_queues(&dev->mphy, 0, MT7615_TX_RING_SIZE,
@@ -59,7 +59,9 @@ mt7615_init_tx_queues(struct mt7615_dev *dev)
 	if (ret)
 		return ret;
 
-	return mt76_init_mcu_queue(&dev->mt76, MT_MCUQ_WM, MT7615_TXQ_MCU,
+	return mt76_init_mcu_queue(&dev->mt76, MT_MCUQ_WM,
+				   is_mt6833(&dev->mt76) ? MT7622_TXQ_MCU :
+							   MT7615_TXQ_MCU,
 				   MT7615_TX_MCU_RING_SIZE, MT_TX_RING_BASE);
 }
 
@@ -75,6 +77,8 @@ static int mt7615_poll_tx(struct napi_struct *napi, int budget)
 	}
 
 	mt76_queue_tx_cleanup(dev, dev->mt76.q_mcu[MT_MCUQ_WM], false);
+	if (is_mt6833(&dev->mt76))
+		mt76_queue_tx_cleanup(dev, dev->mphy.q_tx[0], false);
 	if (napi_complete(napi))
 		mt76_connac_irq_enable(&dev->mt76,
 				       mt7615_tx_mcu_int_mask(dev));
@@ -223,7 +227,28 @@ void mt7615_dma_start(struct mt7615_dev *dev)
 		mt76_set(dev, MT_WPDMA_GLO_CFG, MT_WPDMA_GLO_CFG_CLK_GATE_DIS);
 	}
 
-	if (is_mt7663(&dev->mt76)) {
+	if (is_mt6833(&dev->mt76)) {
+		int i;
+
+		/*
+		 * Match gen4m's asicPcieDmaShdlInit() for a single data/mgmt TX ring (ring 0):
+		 * MT6833's PDMA only implements TX rings 0, 1, 3 and 15 (no rings 2, 4 or 5),
+		 * so map all LMAC AC and ALTX queues to DMASHDL group 0 (ring 0).
+		 */
+		mt76_rmw(dev, MT_DMA_SHDL(MT_DMASHDL_PKT_MAX_SIZE),
+			 MT_DMASHDL_PKT_MAX_SIZE_PLE | MT_DMASHDL_PKT_MAX_SIZE_PSE,
+			 FIELD_PREP(MT_DMASHDL_PKT_MAX_SIZE_PLE, 1) |
+			 FIELD_PREP(MT_DMASHDL_PKT_MAX_SIZE_PSE, 0x18));
+		mt76_wr(dev, MT_DMA_SHDL(MT_DMASHDL_REFILL), 0xfffe0000);
+		mt76_wr(dev, MT_DMA_SHDL(MT_DMASHDL_GROUP_QUOTA(0)),
+			FIELD_PREP(MT_DMASHDL_GROUP_QUOTA_MIN, 0x3) |
+			FIELD_PREP(MT_DMASHDL_GROUP_QUOTA_MAX, 0xfff));
+		for (i = 1; i < 15; i++)
+			mt76_wr(dev, MT_DMA_SHDL(MT_DMASHDL_GROUP_QUOTA(i)), 0);
+		for (i = 0; i < 4; i++)
+			mt76_wr(dev, MT_DMA_SHDL(MT_DMASHDL_Q_MAP(i)), 0);
+		mt76_wr(dev, MT_MCU2HOST_INT_ENABLE, MT7663_MCU_CMD_ERROR_MASK);
+	} else if (is_mt7663(&dev->mt76)) {
 		mt7663_dma_sched_init(dev);
 
 		mt76_wr(dev, MT_MCU2HOST_INT_ENABLE, MT7663_MCU_CMD_ERROR_MASK);
@@ -254,7 +279,8 @@ int mt7615_dma_init(struct mt7615_dev *dev)
 		       MT_WPDMA_GLO_CFG_DMA_BURST_SIZE, 0x3);
 
 	mt76_rmw_field(dev, MT_WPDMA_GLO_CFG,
-		       MT_WPDMA_GLO_CFG_MULTI_DMA_EN, 0x3);
+		       MT_WPDMA_GLO_CFG_MULTI_DMA_EN,
+		       is_mt6833(&dev->mt76) ? 0x2 : 0x3);
 
 	if (is_mt7615(&dev->mt76)) {
 		mt76_set(dev, MT_WPDMA_GLO_CFG,

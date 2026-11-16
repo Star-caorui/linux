@@ -76,7 +76,8 @@ int mt7615_tx_prepare_skb(struct mt76_dev *mdev, void *txwi_ptr,
 	if (!wcid)
 		wcid = &dev->mt76.global_wcid;
 
-	if ((info->flags & IEEE80211_TX_CTL_RATE_CTRL_PROBE) && msta) {
+	if ((info->flags & IEEE80211_TX_CTL_RATE_CTRL_PROBE) && msta &&
+	    !is_mt6833(mdev)) {
 		struct mt7615_phy *phy = &dev->phy;
 		u8 phy_idx = (info->hw_queue & MT_TX_HW_QUEUE_PHY) >> 2;
 

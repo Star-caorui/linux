@@ -706,6 +706,10 @@ mt7615_mac_tx_rate_val(struct mt7615_dev *dev,
 	return rateval;
 }
 
+static uint mt6833_tx_mode;
+module_param(mt6833_tx_mode, uint, 0644);
+MODULE_PARM_DESC(mt6833_tx_mode, "MT6833 unicast data TX mode: 0=WTBL, 1=OFDM, 2=HT, 3=VHT0, 4=TXD");
+
 int mt7615_mac_write_txwi(struct mt7615_dev *dev, __le32 *txwi,
 			  struct sk_buff *skb, struct mt76_wcid *wcid,
 			  struct ieee80211_sta *sta, int pid,
@@ -723,7 +727,7 @@ int mt7615_mac_write_txwi(struct mt7615_dev *dev, __le32 *txwi,
 	u32 val, sz_txd = is_mmio ? MT_TXD_SIZE : MT_USB_TXD_SIZE;
 	struct mt76_phy *mphy = &dev->mphy;
 	__le16 fc = hdr->frame_control;
-	int tx_count = 8;
+	int tx_count = is_mt6833(&dev->mt76) ? 12 : 8;
 	u16 seqno = 0;
 
 	if (vif) {
@@ -731,12 +735,18 @@ int mt7615_mac_write_txwi(struct mt7615_dev *dev, __le32 *txwi,
 
 		omac_idx = mvif->omac_idx;
 		wmm_idx = mvif->wmm_idx;
+	} else if (sta) {
+		struct mt7615_sta *msta = (struct mt7615_sta *)sta->drv_priv;
+
+		omac_idx = msta->vif->mt76.omac_idx;
+		wmm_idx = msta->vif->mt76.wmm_idx;
 	}
 
 	if (sta) {
 		struct mt7615_sta *msta = (struct mt7615_sta *)sta->drv_priv;
 
-		tx_count = msta->rate_count;
+		if (msta->rate_count)
+			tx_count = msta->rate_count;
 	}
 
 	if (phy_idx && dev->mt76.phys[MT_BAND1])
@@ -795,8 +805,28 @@ int mt7615_mac_write_txwi(struct mt7615_dev *dev, __le32 *txwi,
 	txwi[4] = 0;
 	txwi[6] = 0;
 
-	if (rate->idx >= 0 && rate->count &&
-	    !(info->flags & IEEE80211_TX_CTL_RATE_CTRL_PROBE)) {
+	if (is_mt6833(&dev->mt76) && mt6833_tx_mode >= 1 && mt6833_tx_mode <= 3 &&
+	    ieee80211_is_data_present(fc) && !multicast &&
+	    !(info->flags & IEEE80211_TX_CTL_USE_MINRATE)) {
+		u16 f_rate;
+
+		if (mt6833_tx_mode == 1)
+			f_rate = mphy->chandef.chan->band == NL80211_BAND_2GHZ ?
+				 0x004b : 0x0049;
+		else if (mt6833_tx_mode == 2)
+			f_rate = 0x0084;
+		else
+			f_rate = 0x0100;
+
+		txwi[2] |= cpu_to_le32(MT_TXD2_FIX_RATE | MT_TXD2_BA_DISABLE);
+		txwi[6] |= cpu_to_le32(MT_TXD6_FIXED_BW |
+				       FIELD_PREP(MT_TXD6_TX_RATE, f_rate));
+	} else if (rate->idx >= 0 && rate->count &&
+		   (!(info->flags & IEEE80211_TX_CTL_RATE_CTRL_PROBE) ||
+		    (is_mt6833(&dev->mt76) && mt6833_tx_mode == 4)) &&
+		   (!is_mt6833(&dev->mt76) || mt6833_tx_mode == 4 ||
+		    !ieee80211_is_data_present(fc) || multicast ||
+		    (info->flags & IEEE80211_TX_CTL_USE_MINRATE))) {
 		bool stbc = info->flags & IEEE80211_TX_CTL_STBC;
 		u8 bw;
 		u16 rateval = mt7615_mac_tx_rate_val(dev, mphy, rate, stbc,
@@ -826,6 +856,8 @@ int mt7615_mac_write_txwi(struct mt7615_dev *dev, __le32 *txwi,
 		struct ieee80211_hw *hw = mt76_hw(dev);
 
 		val = MT_TXD5_TX_STATUS_HOST | FIELD_PREP(MT_TXD5_PID, pid);
+		if (is_mt6833(&dev->mt76) && pid >= MT_PACKET_ID_FIRST)
+			val |= MT_TXD5_TX_STATUS_MCU;
 		if (!ieee80211_hw_check(hw, SUPPORTS_PS))
 			val |= MT_TXD5_SW_POWER_MGMT;
 		txwi[5] = cpu_to_le32(val);
@@ -857,7 +889,7 @@ int mt7615_mac_write_txwi(struct mt7615_dev *dev, __le32 *txwi,
 
 	val = FIELD_PREP(MT_TXD7_TYPE, fc_type) |
 	      FIELD_PREP(MT_TXD7_SUB_TYPE, fc_stype) |
-	      FIELD_PREP(MT_TXD7_SPE_IDX, 0x18);
+	      FIELD_PREP(MT_TXD7_SPE_IDX, is_mt6833(&dev->mt76) ? 0 : 0x18);
 	txwi[7] = cpu_to_le32(val);
 	if (!is_mmio) {
 		val = FIELD_PREP(MT_TXD8_L_TYPE, fc_type) |
@@ -1502,7 +1534,7 @@ static bool mt7615_mac_add_txs_skb(struct mt7615_dev *dev,
 	return !!skb;
 }
 
-static void mt7615_mac_add_txs(struct mt7615_dev *dev, void *data)
+void mt7615_mac_add_txs(struct mt7615_dev *dev, void *data)
 {
 	struct ieee80211_tx_info info = {};
 	struct ieee80211_sta *sta = NULL;
@@ -1550,6 +1582,7 @@ static void mt7615_mac_add_txs(struct mt7615_dev *dev, void *data)
 out:
 	rcu_read_unlock();
 }
+EXPORT_SYMBOL_GPL(mt7615_mac_add_txs);
 
 static void
 mt7615_txwi_free(struct mt7615_dev *dev, struct mt76_txwi_cache *txwi)
@@ -1595,7 +1628,7 @@ static void mt7615_mac_tx_free(struct mt7615_dev *dev, void *data, int len)
 	u8 i, count;
 
 	mt76_queue_tx_cleanup(dev, dev->mphy.q_tx[MT_TXQ_PSD], false);
-	if (is_mt7615(&dev->mt76)) {
+	if (is_mt7615(&dev->mt76) || is_mt6833(&dev->mt76)) {
 		mt76_queue_tx_cleanup(dev, dev->mphy.q_tx[MT_TXQ_BE], false);
 	} else {
 		for (i = 0; i < IEEE80211_NUM_ACS; i++)
@@ -1703,6 +1736,7 @@ static void mt6833_rx_fixup(struct mt7615_dev *dev, struct sk_buff *skb,
 		/* not the firmware log: it has its own lines */
 		if (e[4] == MT6833_EVENT_DEBUG_MSG ||
 		    e[4] == MT6833_EVENT_ACCESS_REG ||
+		    (e[4] == MT6833_EVENT_TX_DONE && skb->len >= 30 && !e[13]) ||
 		    (e[4] == MCU_EVENT_EXT && e[7] == MCU_EXT_EVENT_FW_LOG_2_HOST))
 			return;
 		dev_info(dev->mt76.dev, "mcu rx eid %02x seq %u len %u: %*ph\n", e[4], e[5],
